@@ -1,0 +1,20 @@
+[project]
+name = "train-paddleocr"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "pillow>=12.2.0",
+    "rdkit>=2026.3.1",
+    "tqdm>=4.67.3",
+    "paddlex[base]==3.5.0",
+    "scikit-image>=0.26.0",
+    "scikit-learn>=1.8.0",
+    "scipy>=1.17.1",
+    "imgaug>=0.4.0",
+    "numpy~=1.0",
+    "setuptools<82",
+    "numba>=0.65.1",
+    "pip>=26.0.1",
+    "wheel>=0.47.0",
+]
