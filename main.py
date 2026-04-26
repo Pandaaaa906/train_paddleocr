@@ -99,6 +99,7 @@ def main() -> int:
         "eval": "evaluate",
         "export": "export",
         "check_dataset": "check_dataset",
+        "pdparams2safetensors": "pdparams2safetensors",
     }
     mode = mode_map[args.mode]
 

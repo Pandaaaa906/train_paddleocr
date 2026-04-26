@@ -4,8 +4,8 @@
 训练PP-DocLayoutV3为例
 
 
-
-```bash
+## 1. 安装依赖
+```shell
 # 安装基础依赖
 uv sync
 
@@ -16,20 +16,27 @@ winget install BYVoid.OpenCC --source winget
 uv pip install paddlepaddle-gpu==3.3.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu130/
 
 # paddlex安装模型等 PP-DocLayoutV3
+mkdir '.\.venv\Lib\site-packages\paddlex\repo_manager\repos'
 uv run paddlex --install PaddleDetection
 
 # 其他模型
 uv run paddlex --install PaddleOCR
+
+
+
+cp /.venv/lib/python/site-packages/paddlex/repo_manager/repos/PaddleDetection/configs/layout_analysis/PP-DocLayoutV3.yaml
 ```
 
+## 2. 训练
+```shell
+$env:PATH = ";J:\ProjectFiles\train_paddleocr\.venv\Lib\site-packages\paddle\include\paddle\phi\backends\dynload;$env:PATH"
+$env:PATH = ";J:\ProjectFiles\train_paddleocr\.venv\Lib\site-packages\nvidia\cu13\bin\x86_64;$env:PATH"
 
 
+python main.py --mode train --device gpu:0
 
-
-
-
-
-
+python main.py --mode export --device gpu:0
+```
 
 
 
