@@ -15,10 +15,11 @@ CheckDataset:
     val_percent: null
 
 Train:
-  num_classes: 26
-  epochs_iters: 50
+  num_classes: 25
+  epochs_iters: 1
   batch_size: 4
-  learning_rate: 0.0001
+  learning_rate: 0.00001
+  freeze_at: 3
   pretrain_weight_path: https://paddle-model-ecology.bj.bcebos.com/paddlex/official_pretrained_model/PP-DocLayoutV3_pretrained.pdparams
   warmup_steps: 100
   resume_path: null
