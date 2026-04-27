@@ -48,7 +48,8 @@ cp ./.venv/lib/python/site-packages/paddlex/repo_manager/repos/PaddleDetection/c
 
 ## 3. 数据集准备
 这部分我主要让ClaudeCode自己写，让它记得`PP-DocLayoutV3`一共有哪25个分类，id是什么即可
-输出到`./data/`文件夹下面
+输出到`./data/`文件夹下面<br/>
+比较紧凑的结构式图片训练集生成代码: `generate_dense_layout.py`
 
 
 ## 4. 训练
@@ -81,7 +82,7 @@ $env:PATH = ";J:\ProjectFiles\train_paddleocr\.venv\Lib\site-packages\paddle\inc
 $env:PATH = ";J:\ProjectFiles\train_paddleocr\.venv\Lib\site-packages\nvidia\cu13\bin\x86_64;$env:PATH"
 
 # 训练
-python main.py --mode train --device gpu:0
+uv run main.py --mode train --device gpu:0
 ```
 
 ## 5. 数据验证
