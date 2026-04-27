@@ -1,161 +1,163 @@
 """Random vocabulary module for filling table cells with chemistry-document content."""
 
+from __future__ import annotations
+
 import random
 
-CAS_SAMPLES: list[str] = [
+CAS_SAMPLES: tuple[str, ...] = (
     "123-45-6",
-    "7782-44-7",
-    "64-17-5",
-    "67-64-1",
-    "7732-18-5",
-    "7440-44-0",
-    "1333-74-0",
-    "630-08-0",
-    "10024-97-2",
-    "7446-09-5",
-    "1310-73-2",
-    "7647-14-5",
-    "7757-82-6",
-    "10102-44-0",
-    "24634-61-5",
-    "5329-14-6",
-    "110-82-7",
-    "108-88-3",
-    "71-43-2",
-    "50-00-0",
-]
+    "CAS: 789-01-2",
+    "CAS No. 111-11-1",
+    "56-78-9",
+    "CAS: 999-88-7",
+    "100-00-5",
+    "CAS 654-32-1",
+    "321-54-8",
+    "CAS: 777-66-5",
+    "888-99-0",
+    "CAS No. 222-33-4",
+    "444-55-6",
+    "CAS: 135-79-1",
+    "246-80-3",
+    "CAS 111-22-3",
+    "333-44-5",
+    "CAS: 666-77-8",
+    "999-00-1",
+    "CAS No. 112-23-4",
+    "556-67-8",
+)
 
-PURITY_SAMPLES: list[str] = [
-    "≥98%",
-    "99.5%",
-    "ACS grade",
-    "≥99.9%",
+PURITY_SAMPLES: tuple[str, ...] = (
+    ">99%",
+    "98.5%",
     "HPLC grade",
-    "AR grade",
-    "CP grade",
-    "≥95%",
-    "Ultra pure",
-    "Pharmaceutical grade",
-]
+    ">99.5%",
+    "98.0%",
+    "ACS grade",
+    ">99.9%",
+    "97.5%",
+    "99.0%",
+    "Reagent grade",
+)
 
-MW_SAMPLES: list[str] = [
-    "MW: 180.16",
-    "Mol.Wt. 342.30",
-    "MW 58.08",
-    "M.W. 60.10",
-    "Mol.Wt: 150.22",
-    "MW: 78.11",
-    "M.W. 46.07",
-    "MW 74.12",
-    "Mol.Wt. 106.17",
-    "MW: 132.16",
-]
+MW_SAMPLES: tuple[str, ...] = (
+    "MW: 234.5",
+    "M=456.7 g/mol",
+    "MW 128.3",
+    "M=180.2 g/mol",
+    "MW: 92.1",
+    "M=60.1 g/mol",
+    "MW 150.0",
+    "M=300.5 g/mol",
+    "MW: 78.1",
+    "M=500.0 g/mol",
+)
 
-PRODUCT_NAMES: list[str] = [
+PRODUCT_NAMES: tuple[str, ...] = (
+    "Benzene",
     "Acetone",
-    "乙醇",
-    "Sodium Chloride",
-    "苯甲酸",
-    "Methanol",
-    "硫酸",
-    "Ethyl Acetate",
-    "氢氧化钠",
+    "甲醇",
+    "Ethyl acetate",
+    "异丙醇",
     "Toluene",
-    "硝酸",
-    "Dimethyl Sulfoxide",
-    "氯化钾",
-    "Hexane",
-    "磷酸",
-    "Isopropanol",
-    "碳酸钠",
-    "Dichloromethane",
-    "乙酸",
-    "Tetrahydrofuran",
-    "硫酸铜",
+    "乙醇",
+    "Methanol",
+    "乙酸乙酯",
     "Chloroform",
+    "甲醛",
+    "Hexane",
     "丙酮",
+    "Dichloromethane",
+    "苯",
     "Acetonitrile",
-    "盐酸",
-    "Diethyl Ether",
-    "硝酸银",
-    "Formic Acid",
-    "氢氧化钾",
-    "Petroleum Ether",
-    "柠檬酸",
-]
+    "甲苯",
+    "Dimethyl sulfoxide",
+    "正己烷",
+    "Tetrahydrofuran",
+    "乙腈",
+    "Diethyl ether",
+    "二甲基亚砜",
+    "Ethanol",
+    "四氢呋喃",
+    "Isopropanol",
+    "乙醚",
+    "Pyridine",
+    "二氯甲烷",
+    "Phenol",
+)
 
-SPECIFICATIONS: list[str] = [
-    "500g/bottle",
-    "25kg/drum",
-    "100mL",
-    "1L/bottle",
-    "5g/vial",
+SPECIFICATIONS: tuple[str, ...] = (
+    "100mg",
+    "1g",
+    "500mL",
+    "25g/bottle",
+    "5g",
     "250mL",
-    "10kg/box",
+    "10g/vial",
+    "1kg",
     "50mL",
-    "2.5L",
-    "20kg/barrel",
-]
+    "100g/bottle",
+)
 
-BATCH_NUMBERS: list[str] = [
-    "Lot: 20240401A",
-    "Batch# 230915",
-    "Lot No. 20231012B",
-    "Batch: 240301C",
-    "Lot# 231125",
-    "Batch 20240228D",
-    "Lot: 20231201E",
-    "Batch# 240515",
-    "Lot No. 231008F",
-    "Batch: 20240320G",
-]
+BATCH_NUMBERS: tuple[str, ...] = (
+    "Lot: A12345",
+    "Batch: 20250427",
+    "Lot No. B67890",
+    "Batch: 20260315",
+    "Lot: C11111",
+    "Batch: 20271201",
+    "Lot No. D22222",
+    "Batch: 20280120",
+    "Lot: E33333",
+    "Batch: 20290505",
+)
 
-APPEARANCE: list[str] = [
-    "White powder",
+APPEARANCE: tuple[str, ...] = (
+    "White solid",
     "Colorless liquid",
-    "淡黄色固体",
-    "White crystalline",
+    "淡黄色粉末",
+    "Yellow crystals",
     "无色透明液体",
-    "Yellowish granules",
+    "Off-white solid",
+    "淡黄色液体",
     "Clear liquid",
-    "白色片状结晶",
-    "Pale yellow oil",
-    "无色至淡黄色液体",
-]
+    "白色结晶",
+    "Brown powder",
+)
 
-NOTES: list[str] = [
-    "Store at 4°C",
+NOTES: tuple[str, ...] = (
+    "Store at -20°C",
     "Hygroscopic",
-    "避光保存",
+    "易燃",
+    "Light sensitive",
     "Keep dry",
-    "易燃液体",
-    "Corrosive",
-    "冷藏保存",
-    "Oxidizer",
-    "有毒，注意防护",
+    "腐蚀性",
     "Air sensitive",
-]
+    "Store in dark",
+    "易挥发",
+    "Handle in fume hood",
+)
 
-ALL_SAMPLES: list[str] = (
-    CAS_SAMPLES
-    + PURITY_SAMPLES
-    + MW_SAMPLES
-    + PRODUCT_NAMES
-    + SPECIFICATIONS
-    + BATCH_NUMBERS
-    + APPEARANCE
-    + NOTES
+ALL_SAMPLES: tuple[str, ...] = (
+    *CAS_SAMPLES,
+    *PURITY_SAMPLES,
+    *MW_SAMPLES,
+    *PRODUCT_NAMES,
+    *SPECIFICATIONS,
+    *BATCH_NUMBERS,
+    *APPEARANCE,
+    *NOTES,
 )
 
 
 def get_random_text(rng: random.Random) -> str:
-    """Return a random string suitable for filling a table cell.
+    """Return a random chemistry-catalog-style string.
 
-    With 80% probability returns a single random sample.
-    With 20% probability returns 2-3 samples joined by spaces.
+    With 80 % probability returns a single sample; with 20 % probability
+    returns 2–3 samples joined by a single space.
     """
-    if rng.random() < 0.2:
-        count = rng.randint(2, 3)
-        parts = [rng.choice(ALL_SAMPLES) for _ in range(count)]
-        return " ".join(parts)
-    return rng.choice(ALL_SAMPLES)
+    if rng.random() < 0.8:
+        return rng.choice(ALL_SAMPLES)
+
+    count = rng.randint(2, 3)
+    return " ".join(rng.choices(ALL_SAMPLES, k=count))
