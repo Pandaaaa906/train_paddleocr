@@ -106,6 +106,10 @@ SubModules:
 ...
 ```
 
+## TODO
+### How to Solve this?
+![img.png](doc/assets/fail_after_finetune.png)
+
 
 ## 参考资料
 [安装paddlepaddle-gpu命令](https://www.paddlepaddle.org.cn/install/quick?docurl=/documentation/docs/zh/develop/install/pip/windows-pip.html)
