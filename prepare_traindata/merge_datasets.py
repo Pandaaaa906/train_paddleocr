@@ -1,13 +1,15 @@
-"""Merge two COCO datasets into a single unified dataset for PaddleX training.
+"""Merge multiple COCO datasets into a single unified dataset for PaddleX training.
 
 Handles ID remapping to avoid conflicts between source datasets (which may reuse
 the same image_id ranges).  Outputs train/val split directly in PaddleX-compatible
-format with globally unique IDs and continuous read_order per image.
+format with globally unique IDs, continuous read_order per image, and all 25
+PP-DocLayoutV3 categories.
 """
 
 from __future__ import annotations
 
 import json
+import random
 import shutil
 import sys
 from pathlib import Path
@@ -17,17 +19,44 @@ from typing import Any
 # Configuration
 # ---------------------------------------------------------------------------
 DATASETS: list[Path] = [
-    Path("data/synthetic_chem"),
     Path("data/dense_chem"),
+    Path("data/table_layout"),
 ]
-OUTPUT_DIR: Path = Path("data/merged_chem")
+OUTPUT_DIR: Path = Path("data/merged_all")
 IMAGES_DIR: Path = OUTPUT_DIR / "images"
 ANNOTATIONS_DIR: Path = OUTPUT_DIR / "annotations"
 
 TRAIN_SPLIT: float = 0.9
 RANDOM_SEED: int = 42
 
-CATEGORY_ID: int = 0
+# All 25 PP-DocLayoutV3 categories (must be present in output JSON)
+CATEGORIES: list[dict[str, Any]] = [
+    {"id": 0, "name": "abstract"},
+    {"id": 1, "name": "algorithm"},
+    {"id": 2, "name": "aside_text"},
+    {"id": 3, "name": "chart"},
+    {"id": 4, "name": "content"},
+    {"id": 5, "name": "display_formula"},
+    {"id": 6, "name": "doc_title"},
+    {"id": 7, "name": "figure_title"},
+    {"id": 8, "name": "footer"},
+    {"id": 9, "name": "footer_image"},
+    {"id": 10, "name": "footnote"},
+    {"id": 11, "name": "formula_number"},
+    {"id": 12, "name": "header"},
+    {"id": 13, "name": "header_image"},
+    {"id": 14, "name": "image"},
+    {"id": 15, "name": "inline_formula"},
+    {"id": 16, "name": "number"},
+    {"id": 17, "name": "paragraph_title"},
+    {"id": 18, "name": "reference"},
+    {"id": 19, "name": "reference_content"},
+    {"id": 20, "name": "seal"},
+    {"id": 21, "name": "table"},
+    {"id": 22, "name": "text"},
+    {"id": 23, "name": "vertical_text"},
+    {"id": 24, "name": "vision_footnote"},
+]
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +107,7 @@ def main() -> int:
 
         for split_path in [train_path, val_path]:
             if not split_path.exists():
-                print(f"WARNING: {split_path} not found, skipping.", file=sys.stderr)
+                print(f"  Skipping {split_path} (not found)")
                 continue
 
             coco = load_coco(split_path)
@@ -117,8 +146,6 @@ def main() -> int:
     all_annotations = renumber_read_order(all_annotations)
 
     # Shuffle images and split train/val
-    import random
-
     rng = random.Random(RANDOM_SEED)
     rng.shuffle(all_images)
 
@@ -132,19 +159,13 @@ def main() -> int:
     train_anns = [a for a in all_annotations if a["image_id"] in train_ids]
     val_anns = [a for a in all_annotations if a["image_id"] in val_ids]
 
-    category = {
-        "id": CATEGORY_ID,
-        "name": "image",
-        "supercategory": "layout",
-    }
-
     save_coco(
         ANNOTATIONS_DIR / "instance_train.json",
-        {"images": train_images, "annotations": train_anns, "categories": [category]},
+        {"images": train_images, "annotations": train_anns, "categories": CATEGORIES},
     )
     save_coco(
         ANNOTATIONS_DIR / "instance_val.json",
-        {"images": val_images, "annotations": val_anns, "categories": [category]},
+        {"images": val_images, "annotations": val_anns, "categories": CATEGORIES},
     )
 
     print(f"\nMerged dataset saved to {OUTPUT_DIR}")

@@ -5,7 +5,7 @@ PaddleX.  The COCO annotations must contain:
 
 * ``segmentation`` – polygon mask for each instance (we synthesise a rectangle from bbox)
 * ``read_order``   – non-negative integer, 0-based continuous per image
-* ``category_id``  – for single-class fine-tuning we remap 14 → 0
+* ``category_id``  – remap synthetic single-class output (0) back to original image class (14)
 
 The output filenames follow PaddleX convention:
 ``instance_train.json`` and ``instance_val.json``.
@@ -22,7 +22,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DATASET_DIR: Path = Path("data/synthetic_chem")
+DATASET_DIR: Path = Path("data/dense_chem")
 ANNOTATIONS_DIR: Path = DATASET_DIR / "annotations"
 SOURCE_ANNO: Path = ANNOTATIONS_DIR / "instances_train.json"
 
@@ -32,8 +32,8 @@ VAL_ANNO: Path = ANNOTATIONS_DIR / "instance_val.json"
 TRAIN_SPLIT: float = 0.9
 RANDOM_SEED: int = 42
 
-OLD_CATEGORY_ID: int = 14
-NEW_CATEGORY_ID: int = 0
+OLD_CATEGORY_ID: int = 0
+NEW_CATEGORY_ID: int = 14
 
 
 # ---------------------------------------------------------------------------
@@ -86,12 +86,33 @@ def remap_and_enhance(coco: dict[str, Any]) -> dict[str, Any]:
         new_annotations.extend(anns)
 
     coco["annotations"] = new_annotations
+    # All 25 PP-DocLayoutV3 categories (preserve full label space)
     coco["categories"] = [
-        {
-            "id": NEW_CATEGORY_ID,
-            "name": "image",
-            "supercategory": "layout",
-        }
+        {"id": 0, "name": "abstract"},
+        {"id": 1, "name": "algorithm"},
+        {"id": 2, "name": "aside_text"},
+        {"id": 3, "name": "chart"},
+        {"id": 4, "name": "content"},
+        {"id": 5, "name": "display_formula"},
+        {"id": 6, "name": "doc_title"},
+        {"id": 7, "name": "figure_title"},
+        {"id": 8, "name": "footer"},
+        {"id": 9, "name": "footer_image"},
+        {"id": 10, "name": "footnote"},
+        {"id": 11, "name": "formula_number"},
+        {"id": 12, "name": "header"},
+        {"id": 13, "name": "header_image"},
+        {"id": 14, "name": "image"},
+        {"id": 15, "name": "inline_formula"},
+        {"id": 16, "name": "number"},
+        {"id": 17, "name": "paragraph_title"},
+        {"id": 18, "name": "reference"},
+        {"id": 19, "name": "reference_content"},
+        {"id": 20, "name": "seal"},
+        {"id": 21, "name": "table"},
+        {"id": 22, "name": "text"},
+        {"id": 23, "name": "vertical_text"},
+        {"id": 24, "name": "vision_footnote"},
     ]
     return coco
 
@@ -138,7 +159,7 @@ def main() -> int:
     print(f"  Boxes:  {original_boxes:,}")
 
     # Remap categories, add segmentation + read_order
-    print("Remapping category_id 14 → 0, adding segmentation masks and read_order …")
+    print("Remapping category_id 0 → 14, adding segmentation masks and read_order …")
     coco = remap_and_enhance(coco)
 
     # Train/val split
