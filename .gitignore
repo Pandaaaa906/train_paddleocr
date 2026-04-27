@@ -10,4 +10,5 @@ wheels/
 .venv
 output/
 data/
+!data/table_layout/annotations/
 .idea/

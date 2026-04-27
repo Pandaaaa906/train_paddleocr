@@ -76,7 +76,7 @@ CATEGORIES: list[dict[str, Any]] = [
     {"id": 20, "name": "seal"},
     {"id": 21, "name": "table"},
     {"id": 22, "name": "text"},
-    {"id": 23, "name": "table_caption"},
+    {"id": 23, "name": "vertical_text"},
     {"id": 24, "name": "vision_footnote"},
 ]
 
@@ -285,7 +285,14 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
             if cell.use_structure and cell.smiles is not None:
                 target_w = max(content_w, 1)
                 target_h = max(content_h, 1)
-                img = _render_structure(cell.smiles, (target_w, target_h))
+                img = None
+                smiles_to_try = cell.smiles
+                for _ in range(3):
+                    img = _render_structure(smiles_to_try, (target_w, target_h))
+                    if img is not None:
+                        break
+                    if _WORKER_SMILES_POOL:
+                        smiles_to_try = rng.choice(_WORKER_SMILES_POOL)
                 if img is not None:
                     # Ensure it fits with at least MIN_STRUCTURE_MARGIN on all sides
                     max_w = col_w - MIN_STRUCTURE_MARGIN * 2
