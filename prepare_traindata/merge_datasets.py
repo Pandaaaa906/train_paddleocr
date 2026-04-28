@@ -29,34 +29,7 @@ ANNOTATIONS_DIR: Path = OUTPUT_DIR / "annotations"
 TRAIN_SPLIT: float = 0.9
 RANDOM_SEED: int = 42
 
-# All 25 PP-DocLayoutV3 categories (must be present in output JSON)
-CATEGORIES: list[dict[str, Any]] = [
-    {"id": 0, "name": "abstract"},
-    {"id": 1, "name": "algorithm"},
-    {"id": 2, "name": "aside_text"},
-    {"id": 3, "name": "chart"},
-    {"id": 4, "name": "content"},
-    {"id": 5, "name": "display_formula"},
-    {"id": 6, "name": "doc_title"},
-    {"id": 7, "name": "figure_title"},
-    {"id": 8, "name": "footer"},
-    {"id": 9, "name": "footer_image"},
-    {"id": 10, "name": "footnote"},
-    {"id": 11, "name": "formula_number"},
-    {"id": 12, "name": "header"},
-    {"id": 13, "name": "header_image"},
-    {"id": 14, "name": "image"},
-    {"id": 15, "name": "inline_formula"},
-    {"id": 16, "name": "number"},
-    {"id": 17, "name": "paragraph_title"},
-    {"id": 18, "name": "reference"},
-    {"id": 19, "name": "reference_content"},
-    {"id": 20, "name": "seal"},
-    {"id": 21, "name": "table"},
-    {"id": 22, "name": "text"},
-    {"id": 23, "name": "vertical_text"},
-    {"id": 24, "name": "vision_footnote"},
-]
+from categories import CATEGORIES
 
 
 # ---------------------------------------------------------------------------
@@ -72,22 +45,6 @@ def save_coco(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False, indent=2)
-
-
-def renumber_read_order(annotations: list[dict]) -> list[dict]:
-    """Re-assign read_order per image so it is 0-based continuous."""
-    from collections import defaultdict
-
-    img_anns: dict[int, list[dict]] = defaultdict(list)
-    for ann in annotations:
-        img_anns[ann["image_id"]].append(ann)
-
-    for anns in img_anns.values():
-        sorted_anns = sorted(anns, key=lambda a: (a["bbox"][1], a["bbox"][0]))
-        for i, ann in enumerate(sorted_anns):
-            ann["read_order"] = i
-
-    return annotations
 
 
 # ---------------------------------------------------------------------------
@@ -141,9 +98,6 @@ def main() -> int:
     if not all_images:
         print("ERROR: No images found.", file=sys.stderr)
         return 1
-
-    # Re-assign read_order per image (defensive, ensures continuity)
-    all_annotations = renumber_read_order(all_annotations)
 
     # Shuffle images and split train/val
     rng = random.Random(RANDOM_SEED)

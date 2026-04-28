@@ -20,6 +20,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import NamedTuple
 
+from prepare_traindata.categories import CATEGORIES
 from rdkit import Chem, RDLogger
 
 RDLogger.DisableLog("rdApp.*")
@@ -282,13 +283,7 @@ def main() -> int:
     coco = {
         "images": coco_images,
         "annotations": coco_annotations,
-        "categories": [
-            {
-                "id": CATEGORY_ID,
-                "name": "image",
-                "supercategory": "layout",
-            }
-        ],
+        "categories": CATEGORIES,
     }
 
     ann_path = ANNOTATIONS_DIR / "instance_train.json"

@@ -19,12 +19,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from prepare_traindata.categories import CATEGORIES
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DATASET_DIR: Path = Path("data/dense_chem")
+DATASET_DIR: Path = Path("data/table_layout")
 ANNOTATIONS_DIR: Path = DATASET_DIR / "annotations"
-SOURCE_ANNO: Path = ANNOTATIONS_DIR / "instances_train.json"
+SOURCE_ANNO: Path = ANNOTATIONS_DIR / "instance_train.json"
 
 TRAIN_ANNO: Path = ANNOTATIONS_DIR / "instance_train.json"
 VAL_ANNO: Path = ANNOTATIONS_DIR / "instance_val.json"
@@ -57,15 +59,6 @@ def bbox_to_polygon(bbox: list[float]) -> list[list[float]]:
     return [[x, y, x + w, y, x + w, y + h, x, y + h]]
 
 
-def assign_read_orders(annotations: list[dict]) -> list[dict]:
-    """Sort annotations top-to-bottom, left-to-right and assign read_order."""
-    # Sort by y, then x
-    sorted_anns = sorted(annotations, key=lambda a: (a["bbox"][1], a["bbox"][0]))
-    for i, ann in enumerate(sorted_anns):
-        ann["read_order"] = i
-    return sorted_anns
-
-
 def remap_and_enhance(coco: dict[str, Any]) -> dict[str, Any]:
     """Remap category_id, add segmentation + read_order."""
     # Group annotations by image
@@ -82,38 +75,10 @@ def remap_and_enhance(coco: dict[str, Any]) -> dict[str, Any]:
             # Add segmentation from bbox
             ann["segmentation"] = bbox_to_polygon(ann["bbox"])
         # Assign read_order
-        anns = assign_read_orders(anns)
         new_annotations.extend(anns)
 
     coco["annotations"] = new_annotations
-    # All 25 PP-DocLayoutV3 categories (preserve full label space)
-    coco["categories"] = [
-        {"id": 0, "name": "abstract"},
-        {"id": 1, "name": "algorithm"},
-        {"id": 2, "name": "aside_text"},
-        {"id": 3, "name": "chart"},
-        {"id": 4, "name": "content"},
-        {"id": 5, "name": "display_formula"},
-        {"id": 6, "name": "doc_title"},
-        {"id": 7, "name": "figure_title"},
-        {"id": 8, "name": "footer"},
-        {"id": 9, "name": "footer_image"},
-        {"id": 10, "name": "footnote"},
-        {"id": 11, "name": "formula_number"},
-        {"id": 12, "name": "header"},
-        {"id": 13, "name": "header_image"},
-        {"id": 14, "name": "image"},
-        {"id": 15, "name": "inline_formula"},
-        {"id": 16, "name": "number"},
-        {"id": 17, "name": "paragraph_title"},
-        {"id": 18, "name": "reference"},
-        {"id": 19, "name": "reference_content"},
-        {"id": 20, "name": "seal"},
-        {"id": 21, "name": "table"},
-        {"id": 22, "name": "text"},
-        {"id": 23, "name": "vertical_text"},
-        {"id": 24, "name": "vision_footnote"},
-    ]
+    coco["categories"] = CATEGORIES
     return coco
 
 
@@ -183,4 +148,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

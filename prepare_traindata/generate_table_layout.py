@@ -47,38 +47,10 @@ CELL_PADDING: int = 10
 # Minimum margin around a resized structure inside a cell
 MIN_STRUCTURE_MARGIN: int = 5
 
-# Category IDs
-CAT_TABLE: int = 21
-CAT_IMAGE: int = 14
+from prepare_traindata.categories import CAT_ID_IMAGE, CAT_ID_TABLE, CATEGORIES
 
-# All 25 PP-DocLayoutV3 categories (must be present in output JSON)
-CATEGORIES: list[dict[str, Any]] = [
-    {"id": 0, "name": "abstract"},
-    {"id": 1, "name": "algorithm"},
-    {"id": 2, "name": "aside_text"},
-    {"id": 3, "name": "chart"},
-    {"id": 4, "name": "content"},
-    {"id": 5, "name": "display_formula"},
-    {"id": 6, "name": "doc_title"},
-    {"id": 7, "name": "figure_title"},
-    {"id": 8, "name": "footer"},
-    {"id": 9, "name": "footer_image"},
-    {"id": 10, "name": "footnote"},
-    {"id": 11, "name": "formula_number"},
-    {"id": 12, "name": "header"},
-    {"id": 13, "name": "header_image"},
-    {"id": 14, "name": "image"},
-    {"id": 15, "name": "inline_formula"},
-    {"id": 16, "name": "number"},
-    {"id": 17, "name": "paragraph_title"},
-    {"id": 18, "name": "reference"},
-    {"id": 19, "name": "reference_content"},
-    {"id": 20, "name": "seal"},
-    {"id": 21, "name": "table"},
-    {"id": 22, "name": "text"},
-    {"id": 23, "name": "vertical_text"},
-    {"id": 24, "name": "vision_footnote"},
-]
+CAT_TABLE: int = CAT_ID_TABLE
+CAT_IMAGE: int = CAT_ID_IMAGE
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +194,8 @@ class StructurePlacement:
     y: int
     w: int
     h: int
+    row: int
+    col: int
 
 
 @dataclass(frozen=True)
@@ -305,7 +279,7 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
                     paste_y = y_cursor + (row_h - ih) // 2
                     canvas.paste(img, (paste_x, paste_y))
                     placements.append(
-                        StructurePlacement(paste_x, paste_y, iw, ih)
+                        StructurePlacement(paste_x, paste_y, iw, ih, row_idx, col_idx)
                     )
                     placed_structure = True
 
@@ -389,8 +363,8 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
         }
     )
 
-    # Structure annotations sorted top-to-bottom, left-to-right
-    sorted_placements = sorted(placements, key=lambda p: (p.y, p.x))
+    # Structure annotations sorted by cell row/col (top-to-bottom, left-to-right)
+    sorted_placements = sorted(placements, key=lambda p: (p.row, p.col))
     for order, pl in enumerate(sorted_placements, start=1):
         annotations.append(
             {
@@ -492,4 +466,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
