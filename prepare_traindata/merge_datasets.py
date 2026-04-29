@@ -8,59 +8,63 @@ PP-DocLayoutV3 categories.
 
 from __future__ import annotations
 
-import json
 import random
 import shutil
 import sys
 from pathlib import Path
 from typing import Any
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-DATASETS: list[Path] = [
-    Path("data/dense_layout"),
-    Path("data/table_layout"),
-]
-OUTPUT_DIR: Path = Path("data/merged_all")
-IMAGES_DIR: Path = OUTPUT_DIR / "images"
-ANNOTATIONS_DIR: Path = OUTPUT_DIR / "annotations"
+import click
+import orjson
 
-TRAIN_SPLIT: float = 0.9
-RANDOM_SEED: int = 42
-
-from categories import CATEGORIES
-
+from prepare_traindata.categories import CATEGORIES
+from prepare_traindata.cli import datasets, output_dir, seed, split
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def load_coco(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+    with path.open("rb") as fh:
+        return orjson.loads(fh.read())
 
 
 def save_coco(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False, indent=2)
+    path.write_bytes(orjson.dumps(data, option=orjson.OPT_INDENT_2))
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> int:
+
+@click.command()
+@datasets()
+@output_dir(default="data/merged_all")
+@split(default=0.9)
+@seed(default=42)
+def main(
+    datasets: tuple[str, ...],
+    output_dir: str,
+    split: float,
+    seed: int,
+) -> int:
+    output_path = Path(output_dir)
+    images_dir = output_path / "images"
+    annotations_dir = output_path / "annotations"
+
     all_images: list[dict] = []
     all_annotations: list[dict] = []
     img_id_offset = 0
     ann_id_offset = 0
 
-    for dataset_dir in DATASETS:
-        train_path = dataset_dir / "annotations" / "instance_train.json"
-        val_path = dataset_dir / "annotations" / "instance_val.json"
-        src_images_dir = dataset_dir / "images"
+    for dataset_dir in datasets:
+        dataset_path = Path(dataset_dir)
+        train_path = dataset_path / "annotations" / "instance_train.json"
+        val_path = dataset_path / "annotations" / "instance_val.json"
+        src_images_dir = dataset_path / "images"
 
         for split_path in [train_path, val_path]:
             if not split_path.exists():
@@ -83,7 +87,7 @@ def main() -> int:
                 # Copy image file
                 src_img = src_images_dir / img["file_name"]
                 if src_img.exists():
-                    dst_img = IMAGES_DIR / img["file_name"]
+                    dst_img = images_dir / img["file_name"]
                     dst_img.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src_img, dst_img)
 
@@ -100,31 +104,51 @@ def main() -> int:
         return 1
 
     # Shuffle images and split train/val
-    rng = random.Random(RANDOM_SEED)
+    rng = random.Random(seed)
     rng.shuffle(all_images)
 
-    n_train = int(len(all_images) * TRAIN_SPLIT)
-    train_images = all_images[:n_train]
-    val_images = all_images[n_train:]
+    if 0.0 < split < 1.0:
+        n_train = int(len(all_images) * split)
+        train_images = all_images[:n_train]
+        val_images = all_images[n_train:]
 
-    train_ids = {img["id"] for img in train_images}
-    val_ids = {img["id"] for img in val_images}
+        train_ids = {img["id"] for img in train_images}
+        val_ids = {img["id"] for img in val_images}
 
-    train_anns = [a for a in all_annotations if a["image_id"] in train_ids]
-    val_anns = [a for a in all_annotations if a["image_id"] in val_ids]
+        train_anns = [a for a in all_annotations if a["image_id"] in train_ids]
+        val_anns = [a for a in all_annotations if a["image_id"] in val_ids]
 
-    save_coco(
-        ANNOTATIONS_DIR / "instance_train.json",
-        {"images": train_images, "annotations": train_anns, "categories": CATEGORIES},
-    )
-    save_coco(
-        ANNOTATIONS_DIR / "instance_val.json",
-        {"images": val_images, "annotations": val_anns, "categories": CATEGORIES},
-    )
+        save_coco(
+            annotations_dir / "instance_train.json",
+            {
+                "images": train_images,
+                "annotations": train_anns,
+                "categories": CATEGORIES,
+            },
+        )
+        save_coco(
+            annotations_dir / "instance_val.json",
+            {
+                "images": val_images,
+                "annotations": val_anns,
+                "categories": CATEGORIES,
+            },
+        )
+        print(f"\nMerged dataset saved to {output_path}")
+        print(f"  Train: {len(train_images)} images, {len(train_anns)} boxes")
+        print(f"  Val:   {len(val_images)} images, {len(val_anns)} boxes")
+    else:
+        save_coco(
+            annotations_dir / "instance_train.json",
+            {
+                "images": all_images,
+                "annotations": all_annotations,
+                "categories": CATEGORIES,
+            },
+        )
+        print(f"\nMerged dataset saved to {output_path}")
+        print(f"  Total: {len(all_images)} images, {len(all_annotations)} boxes")
 
-    print(f"\nMerged dataset saved to {OUTPUT_DIR}")
-    print(f"  Train: {len(train_images)} images, {len(train_anns)} boxes")
-    print(f"  Val:   {len(val_images)} images, {len(val_anns)} boxes")
     return 0
 
 

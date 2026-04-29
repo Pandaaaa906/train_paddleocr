@@ -9,7 +9,8 @@ All callbacks follow Click's ``(ctx, param, value) -> value`` signature.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import click
 
@@ -21,18 +22,24 @@ import click
 def validate_split(ctx: click.Context, param: click.Parameter, value: float) -> float:
     """Reject split values outside the inclusive range [0.0, 1.0]."""
     if not 0.0 <= value <= 1.0:
-        raise click.BadParameter(f"{param.name} must be between 0.0 and 1.0, got {value}")
+        raise click.BadParameter(
+            f"{param.name} must be between 0.0 and 1.0, got {value}"
+        )
     return value
 
 
-def validate_positive_int(ctx: click.Context, param: click.Parameter, value: int) -> int:
+def validate_positive_int(
+    ctx: click.Context, param: click.Parameter, value: int
+) -> int:
     """Reject integers <= 0."""
     if value <= 0:
         raise click.BadParameter(f"{param.name} must be > 0, got {value}")
     return value
 
 
-def validate_non_negative_int(ctx: click.Context, param: click.Parameter, value: int) -> int:
+def validate_non_negative_int(
+    ctx: click.Context, param: click.Parameter, value: int
+) -> int:
     """Reject integers < 0."""
     if value < 0:
         raise click.BadParameter(f"{param.name} must be >= 0, got {value}")
@@ -263,4 +270,18 @@ def cell_height_range(*, default: tuple[int, int] = (80, 200)) -> Callable[..., 
         show_default=True,
         callback=validate_min_max,
         help="Cell height range as two integers (min max).",
+    )
+
+
+def datasets(
+    *, default: tuple[str, ...] = ("data/dense_layout", "data/table_layout")
+) -> Callable[..., Any]:
+    """Return a click.option for dataset directories (multiple allowed)."""
+    return click.option(
+        "--datasets",
+        type=click.Path(file_okay=False, dir_okay=True, exists=False, path_type=str),
+        multiple=True,
+        default=default,
+        show_default=True,
+        help="Dataset directories to merge (can be specified multiple times).",
     )

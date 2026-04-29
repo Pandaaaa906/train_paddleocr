@@ -1,29 +1,67 @@
 from os import path
 from pathlib import Path
-from typing import List
 
 from paddlex import create_model
-
 
 out_base_dir = Path("./output/test")
 
 fps = [
-    Path(r"C:\Users\Pandaaaa906\Pictures\20260416 客户询价 纯文字列表图片 识别出很多0.png"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\20260427 客户询价带图片列表截图.png"),  # 分子式分子量单元格部分识别成图片，实际用户docx样例没这个情况
-    Path(r"C:\Users\Pandaaaa906\Pictures\20260427 客户询价带图片列表截图p2.png"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\客户询价 - 列表截图 - 没法区分多个结构式.png"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\客户询价 - 多个结构图片.jpg"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\客户询价 - 带图片列表.png"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\客户询价-多个结构图片2.png"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\客户询价 - 带图列表截图 20260428.png"),
+    Path(
+        r"C:\Users\Pandaaaa906\Pictures"
+        r"\供应商图谱样例 HPLC C4X-14356TMG-015003-2-COA-周-250902-5.png"
+    ),
+    # Path(
+    #     r"D:\Desktop\客户询价收集\"
+    #     r"20260415 客户询价 带结构图列表图片.jpg"
+    # ),
+    # Path(
+    #     r"C:\Users\Pandaaaa906\Pictures\"
+    #     r"20260421 客户询价 多个结构截图.png"
+    # ),
+    # Path(
+    #     r"C:\Users\Pandaaaa906\Pictures\"
+    #     r"扬信 HNMR 水印 盖章.png"
+    # ),
+    # Path(
+    #     r"C:\Users\Pandaaaa906\Pictures\"
+    #     r"20260416 客户询价 纯文字列表图片 识别出很多0.png"
+    # ),
+    # Path(
+    #     r"C:\Users\Pandaaaa906\Pictures\"
+    #     r"20260427 客户询价带图片列表截图.png"
+    # ),  # 分子式分子量单元格部分识别成图片，实际用户docx样例没这个情况
+    # Path(
+    #     r"C:\Users\Pandaaaa906\Pictures\"
+    #     r"20260427 客户询价带图片列表截图p2.png"
+    # ),
+    # Path(
+    #     r"C:\Users\Pandaaaa906\Pictures\"
+    #     r"客户询价 - 列表截图 - 没法区分多个结构式.png"
+    # ),
+    # Path(
+    #     r"C:\Users\Pandaaaa906\Pictures\"
+    #     r"客户询价 - 多个结构图片.jpg"
+    # ),
+    # Path(
+    #     r"C:\Users\Pandaaaa906\Pictures\"
+    #     r"客户询价 - 带图片列表.png"
+    # ),
+    # Path(
+    #     r"C:\Users\Pandaaaa906\Pictures\"
+    #     r"客户询价-多个结构图片2.png"
+    # ),
+    # Path(
+    #     r"C:\Users\Pandaaaa906\Pictures\"
+    #     r"客户询价 - 带图列表截图 20260428.png"
+    # ),
 ]
 
 
 def model_predict(
-        fps: List[Path | str],
-        model_name: str = "PP-DocLayoutV3",
-        model_dir: str = None,
-        device: str = None,
+    fps: list[Path | str],
+    model_name: str = "PP-DocLayoutV3",
+    model_dir: str | None = None,
+    device: str | None = None,
 ):
     model = create_model(
         model_name=model_name,
@@ -32,7 +70,7 @@ def model_predict(
     )
     output = model.predict([str(fp) for fp in fps], batch_size=1)
 
-    for fp, res in zip(fps, output):
+    for fp, res in zip(fps, output, strict=True):
         if isinstance(fp, str):
             fp = Path(fp)
         fname, _ = path.splitext(fp.name)
@@ -43,10 +81,9 @@ def model_predict(
         res.save_to_json(save_path=str(out_dir / "res.json"))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     model_predict(
         fps,
         model_dir="./output/ppdoclayoutv3_ft/best_model/inference/",
         device="CPU",
     )
-    pass
