@@ -5,22 +5,38 @@ scattered randomly.  This better mimics real chemistry documents where multiple
 structures appear in compact blocks.
 
 Output is written directly in PaddleX-compatible COCO format with:
-* category_id = 0
+* category_id = 14 (image class)
 * segmentation masks (rectangle polygons)
 * read_order (top-to-bottom, left-to-right)
 """
 
 from __future__ import annotations
 
-import json
 import os
 import random
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
-from prepare_traindata.categories import CATEGORIES
+import click
+import orjson
+
+from prepare_traindata.categories import CAT_ID_IMAGE, CATEGORIES
+from prepare_traindata.cli import (
+    max_structures,
+    min_structures,
+    num_samples,
+    output_dir,
+    seed,
+    split,
+    structure_height_range,
+    structure_width_range,
+    watermark,
+    workers,
+)
+from prepare_traindata import watermark_utils
 from rdkit import Chem, RDLogger
 
 RDLogger.DisableLog("rdApp.*")
@@ -29,23 +45,10 @@ RDLogger.DisableLog("rdApp.*")
 # Configuration
 # ---------------------------------------------------------------------------
 SMILES_PATH: Path = Path("smiles.txt")
-OUTPUT_DIR: Path = Path("data/dense_layout")
-IMAGES_DIR: Path = OUTPUT_DIR / "images"
-ANNOTATIONS_DIR: Path = OUTPUT_DIR / "annotations"
-
-NUM_SAMPLES: int = 2500
-MIN_STRUCTURES: int = 2
-MAX_STRUCTURES: int = 10
-
-STRUCTURE_WIDTH_RANGE: tuple[int, int] = (200, 350)
-STRUCTURE_HEIGHT_RANGE: tuple[int, int] = (80, 140)
 
 CANVAS_MARGIN: int = 15
 COL_GAP: int = 10        # horizontal gap between columns
 ROW_GAP: int = 5         # vertical gap between structures in a column
-RANDOM_SEED: int | None = 42
-
-CATEGORY_ID: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -65,32 +68,53 @@ def load_valid_smiles(path: Path) -> list[str]:
     return valid
 
 
-class SampleConfig(NamedTuple):
+@dataclass(frozen=True)
+class SampleConfig:
     sample_idx: int
+    seed: int
     smiles: list[str]
     sizes: list[tuple[int, int]]
     num_cols: int
+    output_dir: Path
+    use_watermark: bool
 
 
 def build_configs(
     smiles_list: list[str],
     num_samples: int,
+    min_structures: int,
+    max_structures: int,
+    structure_width_range: tuple[int, int],
+    structure_height_range: tuple[int, int],
+    output_dir: Path,
+    use_watermark: bool,
     seed: int | None = None,
 ) -> list[SampleConfig]:
     rng = random.Random(seed)
     configs: list[SampleConfig] = []
     for idx in range(num_samples):
-        n = rng.randint(MIN_STRUCTURES, MAX_STRUCTURES)
+        n = rng.randint(min_structures, max_structures)
         chosen = rng.sample(smiles_list, n)
         sizes = [
             (
-                rng.randint(*STRUCTURE_WIDTH_RANGE),
-                rng.randint(*STRUCTURE_HEIGHT_RANGE),
+                rng.randint(*structure_width_range),
+                rng.randint(*structure_height_range),
             )
             for _ in range(n)
         ]
         num_cols = rng.choice([1, 2])
-        configs.append(SampleConfig(idx, chosen, sizes, num_cols))
+        sample_seed = rng.randint(0, 2**31 - 1)
+        configs.append(
+            SampleConfig(
+                sample_idx=idx,
+                seed=sample_seed,
+                smiles=chosen,
+                sizes=sizes,
+                num_cols=num_cols,
+                output_dir=output_dir,
+                use_watermark=use_watermark,
+            )
+        )
     return configs
 
 
@@ -151,15 +175,20 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
     from PIL import Image
     from prepare_traindata.rdkit_chem import d_opts
 
+    rng = random.Random(cfg.seed)
+    images_dir = cfg.output_dir / "images"
+
     images: list[object] = []
     for s, size in zip(cfg.smiles, cfg.sizes):
         img = _render_one(s, size, d_opts)
         if img is not None:
             images.append(img)
-        if len(images) >= MAX_STRUCTURES:
+        # Limit to max_structures based on config length, but we already
+        # sampled exactly the right number; this is just a safety valve.
+        if len(images) >= len(cfg.smiles):
             break
 
-    if len(images) < MIN_STRUCTURES:
+    if len(images) < 2:
         return None
 
     num_cols = cfg.num_cols
@@ -179,6 +208,9 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
     canvas_h = max(col_heights) + CANVAS_MARGIN * 2
 
     canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
+    if cfg.use_watermark:
+        canvas = watermark_utils.apply_random_watermark(canvas, rng)
+
     placements: list[Placement] = []
 
     x_offset = CANVAS_MARGIN
@@ -198,7 +230,7 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
         return None
 
     filename = f"dense_{cfg.sample_idx:06d}.png"
-    out_path = IMAGES_DIR / filename
+    out_path = images_dir / filename
     out_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out_path)
 
@@ -216,7 +248,7 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
             {
                 "id": cfg.sample_idx * 1_000 + order,
                 "image_id": cfg.sample_idx,
-                "category_id": CATEGORY_ID,
+                "category_id": CAT_ID_IMAGE,
                 "bbox": bbox,
                 "area": w * h,
                 "iscrowd": 0,
@@ -238,26 +270,63 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> int:
+@click.command()
+@output_dir(default="data/dense_layout")
+@num_samples(default=2500)
+@seed(default=42)
+@workers(default=0)
+@split(default=0.9)
+@watermark(default=True)
+@min_structures(default=2)
+@max_structures(default=10)
+@structure_width_range(default=(200, 350))
+@structure_height_range(default=(80, 140))
+def main(
+    output_dir: str,
+    num_samples: int,
+    seed: int,
+    workers: int,
+    split: float,
+    watermark: bool,
+    min_structures: int,
+    max_structures: int,
+    structure_width_range: tuple[int, int],
+    structure_height_range: tuple[int, int],
+) -> int:
+    output_path = Path(output_dir)
+    images_dir = output_path / "images"
+    annotations_dir = output_path / "annotations"
+
     print("Loading SMILES …")
     smiles_list = load_valid_smiles(SMILES_PATH)
     total = len(smiles_list)
     print(f"  {total:,} valid SMILES loaded.")
-    if total < MAX_STRUCTURES:
+    if total < max_structures:
         print(
-            f"ERROR: Need at least {MAX_STRUCTURES} valid SMILES, got {total}.",
+            f"ERROR: Need at least {max_structures} valid SMILES, got {total}.",
             file=sys.stderr,
         )
         return 1
 
-    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    ANNOTATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    images_dir.mkdir(parents=True, exist_ok=True)
+    annotations_dir.mkdir(parents=True, exist_ok=True)
 
     print("Building sample configurations …")
-    configs = build_configs(smiles_list, NUM_SAMPLES, seed=RANDOM_SEED)
+    configs = build_configs(
+        smiles_list=smiles_list,
+        num_samples=num_samples,
+        min_structures=min_structures,
+        max_structures=max_structures,
+        structure_width_range=structure_width_range,
+        structure_height_range=structure_height_range,
+        output_dir=output_path,
+        use_watermark=watermark,
+        seed=seed,
+    )
 
-    workers = max(1, (os.cpu_count() or 4) - 1)
-    print(f"Generating {NUM_SAMPLES:,} samples using {workers} workers …")
+    if workers <= 0:
+        workers = max(1, (os.cpu_count() or 4) - 1)
+    print(f"Generating {num_samples:,} samples using {workers} workers …")
 
     coco_images: list[dict] = []
     coco_annotations: list[dict] = []
@@ -279,24 +348,62 @@ def main() -> int:
                 coco_annotations.extend(result.annotations)
 
             completed += 1
-            if completed % 100 == 0 or completed == NUM_SAMPLES:
-                print(f"  {completed:,} / {NUM_SAMPLES:,} done …")
+            if completed % 100 == 0 or completed == num_samples:
+                print(f"  {completed:,} / {num_samples:,} done …")
 
-    coco = {
-        "images": coco_images,
-        "annotations": coco_annotations,
-        "categories": CATEGORIES,
-    }
+    # Train/val split
+    rng_split = random.Random(seed)
+    rng_split.shuffle(coco_images)
 
-    ann_path = ANNOTATIONS_DIR / "instance_train.json"
-    with ann_path.open("w", encoding="utf-8") as fh:
-        json.dump(coco, fh, ensure_ascii=False, indent=2)
+    if 0.0 < split < 1.0:
+        n_train = int(len(coco_images) * split)
+        train_images = coco_images[:n_train]
+        val_images = coco_images[n_train:]
 
-    print(f"\nDone.")
-    print(f"  Images:      {IMAGES_DIR}")
-    print(f"  Annotations: {ann_path}")
-    print(f"  Total images written: {len(coco_images):,}")
-    print(f"  Total boxes written:  {len(coco_annotations):,}")
+        train_ids = {img["id"] for img in train_images}
+        val_ids = {img["id"] for img in val_images}
+
+        train_annotations = [ann for ann in coco_annotations if ann["image_id"] in train_ids]
+        val_annotations = [ann for ann in coco_annotations if ann["image_id"] in val_ids]
+
+        train_coco = {
+            "images": train_images,
+            "annotations": train_annotations,
+            "categories": CATEGORIES,
+        }
+        val_coco = {
+            "images": val_images,
+            "annotations": val_annotations,
+            "categories": CATEGORIES,
+        }
+
+        train_path = annotations_dir / "instance_train.json"
+        val_path = annotations_dir / "instance_val.json"
+        train_path.write_bytes(orjson.dumps(train_coco, option=orjson.OPT_INDENT_2))
+        val_path.write_bytes(orjson.dumps(val_coco, option=orjson.OPT_INDENT_2))
+
+        print(f"\nDone.")
+        print(f"  Images:      {images_dir}")
+        print(f"  Annotations: {annotations_dir}")
+        print(f"  Train images: {len(train_images):,}")
+        print(f"  Val images:   {len(val_images):,}")
+        print(f"  Train boxes:  {len(train_annotations):,}")
+        print(f"  Val boxes:    {len(val_annotations):,}")
+    else:
+        coco = {
+            "images": coco_images,
+            "annotations": coco_annotations,
+            "categories": CATEGORIES,
+        }
+        ann_path = annotations_dir / "instance_train.json"
+        ann_path.write_bytes(orjson.dumps(coco, option=orjson.OPT_INDENT_2))
+
+        print(f"\nDone.")
+        print(f"  Images:      {images_dir}")
+        print(f"  Annotations: {ann_path}")
+        print(f"  Total images written: {len(coco_images):,}")
+        print(f"  Total boxes written:  {len(coco_annotations):,}")
+
     return 0
 
 
