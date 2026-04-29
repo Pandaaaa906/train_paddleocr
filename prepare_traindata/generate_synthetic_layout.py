@@ -10,7 +10,6 @@ the generation of thousands of samples.
 
 from __future__ import annotations
 
-import json
 import os
 import random
 import sys
@@ -18,7 +17,23 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import NamedTuple
 
+import click
+import orjson
 from rdkit import Chem, RDLogger
+
+from prepare_traindata.categories import CAT_ID_IMAGE, CATEGORIES
+from prepare_traindata.cli import (
+    max_structures,
+    min_structures,
+    num_samples,
+    output_dir,
+    seed,
+    split,
+    structure_height_range,
+    structure_width_range,
+    watermark,
+    workers,
+)
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -26,39 +41,23 @@ RDLogger.DisableLog("rdApp.*")
 # Configuration
 # ---------------------------------------------------------------------------
 SMILES_PATH: Path = Path("smiles.txt")
-OUTPUT_DIR: Path = Path("data/synthetic_chem")
-IMAGES_DIR: Path = OUTPUT_DIR / "images"
-ANNOTATIONS_DIR: Path = OUTPUT_DIR / "annotations"
-
-NUM_SAMPLES: int = 5_000
-MIN_STRUCTURES: int = 2
-MAX_STRUCTURES: int = 10
 
 CANVAS_WIDTH_RANGE: tuple[int, int] = (800, 1_400)
 CANVAS_HEIGHT_RANGE: tuple[int, int] = (1_000, 1_800)
-STRUCTURE_WIDTH_RANGE: tuple[int, int] = (200, 300)
-STRUCTURE_HEIGHT_RANGE: tuple[int, int] = (80, 120)
 
 CANVAS_MARGIN: int = 20
 MAX_PLACEMENT_ATTEMPTS: int = 100
-RANDOM_SEED: int | None = 42
 
 # ---------------------------------------------------------------------------
 # Data helpers
 # ---------------------------------------------------------------------------
 
-def load_valid_smiles(path: Path) -> list[str]:
-    """Return SMILES strings that RDKit can parse."""
-    valid: list[str] = []
-    with path.open("r", encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line:
-                continue
-            mol = Chem.MolFromSmiles(line)
-            if mol is not None:
-                valid.append(line)
-    return valid
+
+class Placement(NamedTuple):
+    x: int
+    y: int
+    w: int
+    h: int
 
 
 class SampleConfig(NamedTuple):
@@ -66,31 +65,53 @@ class SampleConfig(NamedTuple):
     smiles: list[str]
     sizes: list[tuple[int, int]]
     canvas_size: tuple[int, int]
+    seed: int
+    output_dir: Path
+    use_watermark: bool
 
 
 def build_configs(
     smiles_list: list[str],
     num_samples: int,
-    seed: int | None = None,
+    seed: int,
+    output_dir: Path,
+    use_watermark: bool,
+    *,
+    min_structures: int = 2,
+    max_structures: int = 10,
+    canvas_width_range: tuple[int, int] = (800, 1_400),
+    canvas_height_range: tuple[int, int] = (1_000, 1_800),
+    structure_width_range: tuple[int, int] = (200, 300),
+    structure_height_range: tuple[int, int] = (80, 120),
 ) -> list[SampleConfig]:
     """Build a deterministic list of sample configurations."""
     rng = random.Random(seed)
     configs: list[SampleConfig] = []
     for idx in range(num_samples):
-        n = rng.randint(MIN_STRUCTURES, MAX_STRUCTURES)
+        n = rng.randint(min_structures, max_structures)
         chosen = rng.sample(smiles_list, n)
         sizes = [
             (
-                rng.randint(*STRUCTURE_WIDTH_RANGE),
-                rng.randint(*STRUCTURE_HEIGHT_RANGE),
+                rng.randint(*structure_width_range),
+                rng.randint(*structure_height_range),
             )
             for _ in range(n)
         ]
         canvas = (
-            rng.randint(*CANVAS_WIDTH_RANGE),
-            rng.randint(*CANVAS_HEIGHT_RANGE),
+            rng.randint(*canvas_width_range),
+            rng.randint(*canvas_height_range),
         )
-        configs.append(SampleConfig(idx, chosen, sizes, canvas))
+        configs.append(
+            SampleConfig(
+                idx,
+                chosen,
+                sizes,
+                canvas,
+                seed=seed + idx,
+                output_dir=output_dir,
+                use_watermark=use_watermark,
+            )
+        )
     return configs
 
 
@@ -154,22 +175,27 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
     """Generate one composite image and its annotations."""
     from PIL import Image
 
+    from prepare_traindata import watermark_utils
     from prepare_traindata.rdkit_chem import d_opts
 
+    rng = random.Random(cfg.seed)
     images: list[Image.Image] = []
     for s, size in zip(cfg.smiles, cfg.sizes):
         img = _render_one(s, size, d_opts)
         if img is not None:
             images.append(img)
-        if len(images) >= MAX_STRUCTURES:
+        if len(images) >= len(cfg.smiles):
             break
 
-    if len(images) < MIN_STRUCTURES:
+    if len(images) < 2:
         return None
 
     canvas_w, canvas_h = cfg.canvas_size
     canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
-    bboxes: list[dict] = []
+    if cfg.use_watermark:
+        canvas = watermark_utils.apply_random_watermark(canvas, rng)
+
+    placements: list[Placement] = []
     placed: list[tuple[int, int, int, int]] = []
 
     for img in images:
@@ -181,37 +207,43 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
 
         placed_ok = False
         for _ in range(MAX_PLACEMENT_ATTEMPTS):
-            x = random.randint(CANVAS_MARGIN, max_x)
-            y = random.randint(CANVAS_MARGIN, max_y)
+            x = rng.randint(CANVAS_MARGIN, max_x)
+            y = rng.randint(CANVAS_MARGIN, max_y)
             cand = (x, y, x + w, y + h)
             if not any(_boxes_overlap(cand, pb) for pb in placed):
                 canvas.paste(img, (x, y))
                 placed.append(cand)
-                bboxes.append({"bbox": [x, y, w, h], "category_id": 14})
+                placements.append(Placement(x, y, w, h))
                 placed_ok = True
                 break
         if not placed_ok:
             pass
 
-    if not bboxes:
+    if not placements:
         return None
 
     filename = f"chem_{cfg.sample_idx:06d}.png"
-    out_path = IMAGES_DIR / filename
+    images_dir = cfg.output_dir / "images"
+    out_path = images_dir / filename
     out_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out_path)
 
+    # Sort by (y, x) for read_order
+    placements.sort(key=lambda p: (p.y, p.x))
+
     annotations = []
-    for local_idx, box in enumerate(bboxes):
-        x, y, w, h = box["bbox"]
+    for read_order, pl in enumerate(placements):
+        x, y, w, h = pl
         annotations.append(
             {
-                "id": cfg.sample_idx * 1_000 + local_idx,
+                "id": cfg.sample_idx * 1_000 + read_order,
                 "image_id": cfg.sample_idx,
-                "category_id": box["category_id"],
+                "category_id": CAT_ID_IMAGE,
                 "bbox": [x, y, w, h],
+                "segmentation": [[x, y, x + w, y, x + w, y + h, x, y + h]],
                 "area": w * h,
                 "iscrowd": 0,
+                "read_order": read_order,
             }
         )
 
@@ -228,26 +260,83 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> int:
+
+@click.command()
+@output_dir(default="data/synthetic_chem")
+@num_samples(default=5000)
+@seed(default=42)
+@workers(default=0)
+@split(default=0.9)
+@watermark(default=True)
+@min_structures(default=2)
+@max_structures(default=10)
+@click.option(
+    "--canvas-width-range",
+    type=(int, int),
+    default=(800, 1_400),
+    show_default=True,
+    callback=lambda ctx, param, value: value if value[0] <= value[1] else click.BadParameter(f"{param.name} min must be <= max"),
+    help="Canvas width range as two integers (min max).",
+)
+@click.option(
+    "--canvas-height-range",
+    type=(int, int),
+    default=(1_000, 1_800),
+    show_default=True,
+    callback=lambda ctx, param, value: value if value[0] <= value[1] else click.BadParameter(f"{param.name} min must be <= max"),
+    help="Canvas height range as two integers (min max).",
+)
+@structure_width_range(default=(200, 300))
+@structure_height_range(default=(80, 120))
+def main(
+    output_dir: str,
+    num_samples: int,
+    seed: int,
+    workers: int,
+    split: float,
+    watermark: bool,
+    min_structures: int,
+    max_structures: int,
+    canvas_width_range: tuple[int, int],
+    canvas_height_range: tuple[int, int],
+    structure_width_range: tuple[int, int],
+    structure_height_range: tuple[int, int],
+) -> int:
     print("Loading SMILES …")
-    smiles_list = load_valid_smiles(SMILES_PATH)
+    smiles_list = _load_valid_smiles(SMILES_PATH)
     total = len(smiles_list)
     print(f"  {total:,} valid SMILES loaded.")
-    if total < MAX_STRUCTURES:
+    if total < max_structures:
         print(
-            f"ERROR: Need at least {MAX_STRUCTURES} valid SMILES, got {total}.",
+            f"ERROR: Need at least {max_structures} valid SMILES, got {total}.",
             file=sys.stderr,
         )
         return 1
 
-    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    ANNOTATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = Path(output_dir)
+    images_dir = out_path / "images"
+    annotations_dir = out_path / "annotations"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    annotations_dir.mkdir(parents=True, exist_ok=True)
 
     print("Building sample configurations …")
-    configs = build_configs(smiles_list, NUM_SAMPLES, seed=RANDOM_SEED)
+    configs = build_configs(
+        smiles_list,
+        num_samples,
+        seed=seed,
+        output_dir=out_path,
+        use_watermark=watermark,
+        min_structures=min_structures,
+        max_structures=max_structures,
+        canvas_width_range=canvas_width_range,
+        canvas_height_range=canvas_height_range,
+        structure_width_range=structure_width_range,
+        structure_height_range=structure_height_range,
+    )
 
-    workers = max(1, (os.cpu_count() or 4) - 1)
-    print(f"Generating {NUM_SAMPLES:,} samples using {workers} workers …")
+    if workers <= 0:
+        workers = max(1, (os.cpu_count() or 4) - 1)
+    print(f"Generating {num_samples:,} samples using {workers} workers …")
 
     coco_images: list[dict] = []
     coco_annotations: list[dict] = []
@@ -269,31 +358,54 @@ def main() -> int:
                 coco_annotations.extend(result.annotations)
 
             completed += 1
-            if completed % 100 == 0 or completed == NUM_SAMPLES:
-                print(f"  {completed:,} / {NUM_SAMPLES:,} done …")
+            if completed % 100 == 0 or completed == num_samples:
+                print(f"  {completed:,} / {num_samples:,} done …")
 
-    coco = {
-        "images": coco_images,
-        "annotations": coco_annotations,
-        "categories": [
-            {
-                "id": 14,
-                "name": "image",
-                "supercategory": "layout",
-            }
-        ],
-    }
+    coco_images.sort(key=lambda img: img["id"])
+    coco_annotations.sort(key=lambda ann: ann["id"])
 
-    ann_path = ANNOTATIONS_DIR / "instances_train.json"
-    with ann_path.open("w", encoding="utf-8") as fh:
-        json.dump(coco, fh, ensure_ascii=False, indent=2)
+    def _write_coco(images: list[dict], annotations: list[dict], path: Path) -> None:
+        coco = {
+            "images": images,
+            "annotations": annotations,
+            "categories": CATEGORIES,
+        }
+        path.write_bytes(orjson.dumps(coco, option=orjson.OPT_INDENT_2))
 
-    print(f"\nDone.")
-    print(f"  Images:      {IMAGES_DIR}")
-    print(f"  Annotations: {ann_path}")
+    if 0.0 < split < 1.0:
+        n_train = int(len(coco_images) * split)
+        train_images = coco_images[:n_train]
+        val_images = coco_images[n_train:]
+        train_ids = {img["id"] for img in train_images}
+        val_ids = {img["id"] for img in val_images}
+        train_annotations = [ann for ann in coco_annotations if ann["image_id"] in train_ids]
+        val_annotations = [ann for ann in coco_annotations if ann["image_id"] in val_ids]
+        _write_coco(train_images, train_annotations, annotations_dir / "instance_train.json")
+        _write_coco(val_images, val_annotations, annotations_dir / "instance_val.json")
+        print(f"  Split: {len(train_images)} train, {len(val_images)} val")
+    else:
+        _write_coco(coco_images, coco_annotations, annotations_dir / "instance_train.json")
+
+    print("\nDone.")
+    print(f"  Images:      {images_dir}")
+    print(f"  Annotations: {annotations_dir}")
     print(f"  Total images written: {len(coco_images):,}")
     print(f"  Total boxes written:  {len(coco_annotations):,}")
     return 0
+
+
+def _load_valid_smiles(path: Path) -> list[str]:
+    """Return SMILES strings that RDKit can parse."""
+    valid: list[str] = []
+    with path.open("r", encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line:
+                continue
+            mol = Chem.MolFromSmiles(line)
+            if mol is not None:
+                valid.append(line)
+    return valid
 
 
 if __name__ == "__main__":
