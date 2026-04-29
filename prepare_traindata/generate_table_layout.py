@@ -11,7 +11,6 @@ Output COCO JSON includes:
 
 from __future__ import annotations
 
-import json
 import os
 import random
 import sys
@@ -20,34 +19,36 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import click
+import orjson
 from rdkit import Chem, RDLogger
+
+from prepare_traindata.categories import CAT_ID_IMAGE, CAT_ID_TABLE, CATEGORIES
+from prepare_traindata.cli import (
+    cell_height_range,
+    cell_width_range,
+    max_cols,
+    max_rows,
+    min_cols,
+    min_rows,
+    num_samples,
+    output_dir,
+    seed,
+    split,
+    structure_prob,
+    watermark,
+    workers,
+)
 
 RDLogger.DisableLog("rdApp.*")
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Constants
 # ---------------------------------------------------------------------------
 SMILES_PATH: Path = Path("smiles.txt")
-OUTPUT_DIR: Path = Path("data/table_layout")
-IMAGES_DIR: Path = OUTPUT_DIR / "images"
-ANNOTATIONS_DIR: Path = OUTPUT_DIR / "annotations"
-
-NUM_SAMPLES: int = 2_500
 MARGIN: int = 20
-RANDOM_SEED: int | None = 42
-
-WORKERS: int = max(1, (os.cpu_count() or 4) - 1)
-
-# Probability a cell contains a chemical structure (otherwise text)
-STRUCTURE_PROB: float = 0.4
-
-# Padding inside a cell when placing content
 CELL_PADDING: int = 10
-
-# Minimum margin around a resized structure inside a cell
 MIN_STRUCTURE_MARGIN: int = 5
-
-from prepare_traindata.categories import CAT_ID_IMAGE, CAT_ID_TABLE, CATEGORIES
 
 CAT_TABLE: int = CAT_ID_TABLE
 CAT_IMAGE: int = CAT_ID_IMAGE
@@ -56,6 +57,7 @@ CAT_IMAGE: int = CAT_ID_IMAGE
 # ---------------------------------------------------------------------------
 # Data helpers
 # ---------------------------------------------------------------------------
+
 
 def load_valid_smiles(path: Path) -> list[str]:
     valid: list[str] = []
@@ -86,26 +88,35 @@ class SampleConfig:
     row_heights: tuple[int, ...]
     border_width: int
     cells: tuple[CellConfig, ...]
+    output_dir: Path
+    use_watermark: bool
 
 
 def build_configs(
     smiles_list: list[str],
     num_samples: int,
-    seed: int | None = None,
+    seed: int,
+    structure_prob: float,
+    min_cols: int,
+    max_cols: int,
+    min_rows: int,
+    max_rows: int,
+    cell_width_range: tuple[int, int],
+    cell_height_range: tuple[int, int],
 ) -> list[SampleConfig]:
     rng = random.Random(seed)
     configs: list[SampleConfig] = []
     for idx in range(num_samples):
-        num_cols = rng.randint(1, 5)
-        num_rows = rng.randint(1, 15)
-        col_widths = tuple(rng.randint(100, 300) for _ in range(num_cols))
-        row_heights = tuple(rng.randint(80, 200) for _ in range(num_rows))
+        num_cols = rng.randint(min_cols, max_cols)
+        num_rows = rng.randint(min_rows, max_rows)
+        col_widths = tuple(rng.randint(*cell_width_range) for _ in range(num_cols))
+        row_heights = tuple(rng.randint(*cell_height_range) for _ in range(num_rows))
         border_width = rng.randint(2, 4)
 
         total_cells = num_cols * num_rows
         cells: list[CellConfig] = []
         for _ in range(total_cells):
-            use_structure = rng.random() < STRUCTURE_PROB
+            use_structure = rng.random() < structure_prob
             if use_structure:
                 smiles = rng.choice(smiles_list)
                 cells.append(CellConfig(use_structure=True, smiles=smiles))
@@ -122,6 +133,8 @@ def build_configs(
                 row_heights=row_heights,
                 border_width=border_width,
                 cells=tuple(cells),
+                output_dir=Path("PLACEHOLDER"),
+                use_watermark=True,
             )
         )
     return configs
@@ -221,7 +234,8 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
 
     # White canvas, apply watermark
     canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
-    canvas = watermark_utils.apply_random_watermark(canvas, rng)
+    if cfg.use_watermark:
+        canvas = watermark_utils.apply_random_watermark(canvas, rng)
 
     draw = ImageDraw.Draw(canvas)
 
@@ -331,7 +345,8 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
 
     # Save image
     filename = f"table_{cfg.sample_idx:06d}.png"
-    out_path = IMAGES_DIR / filename
+    images_dir = cfg.output_dir / "images"
+    out_path = images_dir / filename
     out_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out_path)
 
@@ -403,7 +418,41 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> int:
+@click.command()
+@output_dir(default="data/table_layout")
+@num_samples(default=2500)
+@seed(default=42)
+@workers(default=0)
+@split(default=0.0)
+@watermark(default=True)
+@structure_prob(default=0.4)
+@min_cols(default=1)
+@max_cols(default=5)
+@min_rows(default=1)
+@max_rows(default=15)
+@cell_width_range(default=(100, 300))
+@cell_height_range(default=(80, 200))
+def main(
+    output_dir: str,
+    num_samples: int,
+    seed: int,
+    workers: int,
+    split: float,
+    watermark: bool,
+    structure_prob: float,
+    min_cols: int,
+    max_cols: int,
+    min_rows: int,
+    max_rows: int,
+    cell_width_range: tuple[int, int],
+    cell_height_range: tuple[int, int],
+) -> int:
+    output_path = Path(output_dir)
+    images_dir = output_path / "images"
+    annotations_dir = output_path / "annotations"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    annotations_dir.mkdir(parents=True, exist_ok=True)
+
     print("Loading SMILES …")
     smiles_list = load_valid_smiles(SMILES_PATH)
     total = len(smiles_list)
@@ -412,20 +461,48 @@ def main() -> int:
         print("ERROR: Need at least 1 valid SMILES.", file=sys.stderr)
         return 1
 
-    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    ANNOTATIONS_DIR.mkdir(parents=True, exist_ok=True)
-
     print("Building sample configurations …")
-    configs = build_configs(smiles_list, NUM_SAMPLES, seed=RANDOM_SEED)
+    configs = build_configs(
+        smiles_list=smiles_list,
+        num_samples=num_samples,
+        seed=seed,
+        structure_prob=structure_prob,
+        min_cols=min_cols,
+        max_cols=max_cols,
+        min_rows=min_rows,
+        max_rows=max_rows,
+        cell_width_range=cell_width_range,
+        cell_height_range=cell_height_range,
+    )
 
-    print(f"Generating {NUM_SAMPLES:,} samples using {WORKERS} workers …")
+    # Patch output_dir and watermark into configs for worker safety
+    configs = [
+        SampleConfig(
+            sample_idx=c.sample_idx,
+            seed=c.seed,
+            num_cols=c.num_cols,
+            num_rows=c.num_rows,
+            col_widths=c.col_widths,
+            row_heights=c.row_heights,
+            border_width=c.border_width,
+            cells=c.cells,
+            output_dir=output_path,
+            use_watermark=watermark,
+        )
+        for c in configs
+    ]
+
+    if workers <= 0:
+        workers = max(1, (os.cpu_count() or 4) - 1)
+
+    print(f"Generating {num_samples:,} samples using {workers} workers …")
 
     coco_images: list[dict[str, Any]] = []
     coco_annotations: list[dict[str, Any]] = []
     completed = 0
 
     with ProcessPoolExecutor(
-        max_workers=WORKERS,
+        max_workers=workers,
         initializer=_init_worker,
         initargs=(smiles_list,),
     ) as pool:
@@ -444,24 +521,53 @@ def main() -> int:
                 coco_annotations.extend(result.annotations)
 
             completed += 1
-            if completed % 100 == 0 or completed == NUM_SAMPLES:
-                print(f"  {completed:,} / {NUM_SAMPLES:,} done …")
+            if completed % 100 == 0 or completed == num_samples:
+                print(f"  {completed:,} / {num_samples:,} done …")
 
-    coco = {
-        "images": coco_images,
-        "annotations": coco_annotations,
-        "categories": CATEGORIES,
-    }
+    if 0.0 < split < 1.0:
+        n_train = int(len(coco_images) * split)
+        train_images = coco_images[:n_train]
+        val_images = coco_images[n_train:]
+        train_ids = {img["id"] for img in train_images}
+        val_ids = {img["id"] for img in val_images}
+        train_anns = [ann for ann in coco_annotations if ann["image_id"] in train_ids]
+        val_anns = [ann for ann in coco_annotations if ann["image_id"] in val_ids]
 
-    ann_path = ANNOTATIONS_DIR / "instance_train.json"
-    with ann_path.open("w", encoding="utf-8") as fh:
-        json.dump(coco, fh, ensure_ascii=False, indent=2)
+        train_path = annotations_dir / "instance_train.json"
+        val_path = annotations_dir / "instance_val.json"
+        train_path.write_bytes(
+            orjson.dumps(
+                {"images": train_images, "annotations": train_anns, "categories": CATEGORIES},
+                option=orjson.OPT_INDENT_2,
+            )
+        )
+        val_path.write_bytes(
+            orjson.dumps(
+                {"images": val_images, "annotations": val_anns, "categories": CATEGORIES},
+                option=orjson.OPT_INDENT_2,
+            )
+        )
+        print(f"\nDone.")
+        print(f"  Images:      {images_dir}")
+        print(f"  Annotations: {annotations_dir}")
+        print(f"  Train images: {len(train_images):,}")
+        print(f"  Val images:   {len(val_images):,}")
+        print(f"  Train boxes:  {len(train_anns):,}")
+        print(f"  Val boxes:    {len(val_anns):,}")
+    else:
+        ann_path = annotations_dir / "instance_train.json"
+        ann_path.write_bytes(
+            orjson.dumps(
+                {"images": coco_images, "annotations": coco_annotations, "categories": CATEGORIES},
+                option=orjson.OPT_INDENT_2,
+            )
+        )
+        print(f"\nDone.")
+        print(f"  Images:      {images_dir}")
+        print(f"  Annotations: {ann_path}")
+        print(f"  Total images written: {len(coco_images):,}")
+        print(f"  Total boxes written:  {len(coco_annotations):,}")
 
-    print(f"\nDone.")
-    print(f"  Images:      {IMAGES_DIR}")
-    print(f"  Annotations: {ann_path}")
-    print(f"  Total images written: {len(coco_images):,}")
-    print(f"  Total boxes written:  {len(coco_annotations):,}")
     return 0
 
 
