@@ -60,7 +60,7 @@ cp ./.venv/lib/python/site-packages/paddlex/repo_manager/repos/PaddleDetection/c
 <br/>主要配置:
 ```yaml
 Global:
-  dataset_dir: "data/dense_chem"
+  dataset_dir: "data/dense_layout"
 ...
 Train:
   num_classes: 25

@@ -19,7 +19,7 @@ from typing import Any
 # Configuration
 # ---------------------------------------------------------------------------
 DATASETS: list[Path] = [
-    Path("data/dense_chem"),
+    Path("data/dense_layout"),
     Path("data/table_layout"),
 ]
 OUTPUT_DIR: Path = Path("data/merged_all")

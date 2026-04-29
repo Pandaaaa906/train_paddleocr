@@ -29,11 +29,11 @@ RDLogger.DisableLog("rdApp.*")
 # Configuration
 # ---------------------------------------------------------------------------
 SMILES_PATH: Path = Path("smiles.txt")
-OUTPUT_DIR: Path = Path("data/dense_chem")
+OUTPUT_DIR: Path = Path("data/dense_layout")
 IMAGES_DIR: Path = OUTPUT_DIR / "images"
 ANNOTATIONS_DIR: Path = OUTPUT_DIR / "annotations"
 
-NUM_SAMPLES: int = 5_000
+NUM_SAMPLES: int = 2500
 MIN_STRUCTURES: int = 2
 MAX_STRUCTURES: int = 10
 
@@ -135,6 +135,8 @@ class Placement(NamedTuple):
     img: object  # PIL Image
     x: int
     y: int
+    row_idx: int
+    col_idx: int
 
 
 class SampleResult(NamedTuple):
@@ -182,13 +184,13 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
     x_offset = CANVAS_MARGIN
     for col_idx, col in enumerate(cols):
         y_offset = CANVAS_MARGIN
-        for img in col:
+        for row_idx, img in enumerate(col):
             # Center each image horizontally within its column
             img_w, img_h = img.size
             x = x_offset + (col_widths[col_idx] - img_w) // 2
             y = y_offset
             canvas.paste(img, (x, y))
-            placements.append(Placement(img, x, y))
+            placements.append(Placement(img, x, y, row_idx, col_idx))
             y_offset += img_h + ROW_GAP
         x_offset += col_widths[col_idx] + COL_GAP
 
@@ -202,7 +204,7 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
 
     # Build annotations with bbox, segmentation, read_order
     # Sort placements top-to-bottom, left-to-right for read_order
-    sorted_placements = sorted(placements, key=lambda p: (p.y, p.x))
+    sorted_placements = sorted(placements, key=lambda p: (p.col_idx, p.row_idx))
 
     annotations = []
     for order, pl in enumerate(sorted_placements):
@@ -299,4 +301,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

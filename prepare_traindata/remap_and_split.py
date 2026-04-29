@@ -24,7 +24,7 @@ from prepare_traindata.categories import CATEGORIES
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DATASET_DIR: Path = Path("data/table_layout")
+DATASET_DIR: Path = Path("data/dense_layout")
 ANNOTATIONS_DIR: Path = DATASET_DIR / "annotations"
 SOURCE_ANNO: Path = ANNOTATIONS_DIR / "instance_train.json"
 
@@ -93,7 +93,6 @@ def split_images(images: list[dict], split_ratio: float, seed: int) -> tuple[lis
 def build_split_coco(
     coco: dict[str, Any],
     image_ids: set[int],
-    category: dict[str, Any],
 ) -> dict[str, Any]:
     images = [img for img in coco["images"] if img["id"] in image_ids]
     annotations = [
@@ -102,7 +101,7 @@ def build_split_coco(
     return {
         "images": images,
         "annotations": annotations,
-        "categories": [category],
+        "categories": CATEGORIES,
     }
 
 
@@ -133,9 +132,8 @@ def main() -> int:
     train_ids = {img["id"] for img in train_images}
     val_ids = {img["id"] for img in val_images}
 
-    category = coco["categories"][0]
-    train_coco = build_split_coco(coco, train_ids, category)
-    val_coco = build_split_coco(coco, val_ids, category)
+    train_coco = build_split_coco(coco, train_ids)
+    val_coco = build_split_coco(coco, val_ids)
 
     # Save
     save_coco(TRAIN_ANNO, train_coco)

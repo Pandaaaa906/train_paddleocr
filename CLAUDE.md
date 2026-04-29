@@ -53,7 +53,7 @@
 │
 ├── data/
 │   ├── synthetic_chem/                 # 【旧版】随机布局合成数据 (~5000张)
-│   ├── dense_chem/                     # 【当前训练数据】密集布局合成数据
+│   ├── dense_layout/                     # 【当前训练数据】密集布局合成数据
 │   │   ├── images/                     #   dense_000000.png ~ dense_004999.png
 │   │   └── annotations/
 │   │       ├── instance_train.json     #   90% 训练集（PaddleX COCO 格式，category_id=0）
@@ -111,7 +111,7 @@ uv run python -m prepare_traindata.remap_and_split
 uv run python -m prepare_traindata.merge_datasets
 ```
 
-**输入**：`data/synthetic_chem/` + `data/dense_chem/`  
+**输入**：`data/synthetic_chem/` + `data/dense_layout/`  
 **输出**：`data/merged_chem/`（统一 ID、重新分配 read_order）
 
 ---
@@ -124,7 +124,7 @@ uv run python -m prepare_traindata.merge_datasets
 Global:
   model: PP-DocLayoutV3
   mode: train
-  dataset_dir: "data/dense_chem"
+  dataset_dir: "data/dense_layout"
   device: gpu:0
   output: "output/ppdoclayoutv3_ft"
 
