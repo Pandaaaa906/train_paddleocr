@@ -1,5 +1,8 @@
 # PP-DocLayoutV3 微调实战
 
+--- 
+Author: Pandaaaa906
+
 ```
 1. 下面所有涉及Windows的命令，都在Powershell/Windows Terminal里运行
 2. 使用uv作为Python的包管理，需要提前安装
@@ -34,7 +37,7 @@ winget install BYVoid.OpenCC --source winget
 uv pip install paddlepaddle-gpu==3.3.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu130/
 
 # paddlex安装模型模型插件 PP-DocLayoutV3
-# 安装过程中可能会提示没有repos文件夹，手动新增即可
+# 安装过程中可能会提示没有repos文件夹，手动新增即可, 注意windows/linux路径不一致
 mkdir '.\.venv\Lib\site-packages\paddlex\repo_manager\repos'
 uv run paddlex --install PaddleDetection
 
@@ -78,8 +81,8 @@ Train:
 ### 4.2 模型训练
 ```shell
 # Windows下可能会提示缺少环境变量
-$env:PATH = ";J:\ProjectFiles\train_paddleocr\.venv\Lib\site-packages\paddle\include\paddle\phi\backends\dynload;$env:PATH"
-$env:PATH = ";J:\ProjectFiles\train_paddleocr\.venv\Lib\site-packages\nvidia\cu13\bin\x86_64;$env:PATH"
+$env:PATH = ";$pwd\.venv\Lib\site-packages\paddle\include\paddle\phi\backends\dynload;$env:PATH"
+$env:PATH = ";$pwd\.venv\Lib\site-packages\nvidia\cu13\bin\x86_64;$env:PATH"
 
 # 训练
 uv run main.py --mode train --device gpu:0
@@ -112,7 +115,7 @@ SubModules:
 
 
 ## 参考资料
-[安装paddlepaddle-gpu命令](https://www.paddlepaddle.org.cn/install/quick?docurl=/documentation/docs/zh/develop/install/pip/windows-pip.html)
+[安装paddlepaddle-gpu命令](https://www.paddlepaddle.org.cn/install/quick?docurl=/documentation/docs/zh/develop/install/pip/windows-pip.html)<br/>
 [PP-DocLayoutV3数据集样例](https://paddle-model-ecology.bj.bcebos.com/paddlex/data/doclayoutv3_examples.tar)
 
 
