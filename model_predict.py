@@ -6,19 +6,31 @@ from paddlex import create_model
 out_base_dir = Path("./output/test")
 
 fps = [
-    # Path(r"C:\Users\Pandaaaa906\Pictures\供应商图谱样例 HPLC C4X-14356TMG-015003-2-COA-周-250902-5.png"),
-    # Path(r"C:\Users\Pandaaaa906\Pictures\扬信 HNMR 水印 盖章.png"),
+    # Path(r"C:/Users/Pandaaaa906/Pictures/供应商图谱样例 HPLC C4X-14356TMG-015003-2-COA-周-250902-5.png"),
+    # Path(r"C:/Users/Pandaaaa906/Pictures/扬信 HNMR 水印 盖章.png"),
+    # Path(r"C:/Users/Pandaaaa906/Pictures/20260506 供应商图谱 大赛路 氢谱.png"),
 
-    Path(r"D:\Desktop\客户询价收集\20260415 客户询价 带结构图列表图片.jpg"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\20260421 客户询价 多个结构截图.png"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\20260416 客户询价 纯文字列表图片 识别出很多0.png"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\20260427 客户询价带图片列表截图.png"),  # 分子式分子量单元格部分识别成图片，实际用户docx样例没这个情况
-    Path(r"C:\Users\Pandaaaa906\Pictures\20260427 客户询价带图片列表截图p2.png"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\客户询价 - 列表截图 - 没法区分多个结构式.png"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\客户询价 - 多个结构图片.jpg"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\客户询价 - 带图片列表.png"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\客户询价-多个结构图片2.png"),
-    Path(r"C:\Users\Pandaaaa906\Pictures\客户询价 - 带图列表截图 20260428.png"),
+    Path("samples/images/20260506 客户询价 纯文字列表 截图.jpg"),
+    Path("samples/images/20260507 客户询价 文献截图.png"),
+    Path("samples/images/Fake 询价列表截图.png"),
+    Path("samples/images/客户询价 - 带图片列表.png"),
+    Path("samples/images/客户询价 - 多个结构图片.jpg"),
+    Path("samples/images/客户询价 - 列表截图 - 没法区分多个结构式.png"),
+    Path("samples/images/客户询价 - 列表截图.png"),
+    Path("samples/images/客户询价.png"),
+    Path("samples/images/客户询价-多个结构图片2.png"),
+    Path("samples/images/客户询价例子 - 单行列表图片.png"),
+    Path("samples/images/客户询价例子 - 单行列表图片2.png"),
+    Path("samples/images/询价样例 文字 列表截图.png"),
+    Path("samples/images/20260415 客户询价 带结构图列表图片.jpg"),
+    Path("samples/images/20260416 客户询价 纯文字列表图片 识别出很多0.png"),
+    Path("samples/images/20260421 客户询价 多个结构截图.png"),
+    Path("samples/images/20260423 客户询价 纯文本列表 截图.png"),
+    Path("samples/images/20260427 客户询价 带图片列表截图.png"),
+    Path("samples/images/20260427 客户询价 带图片列表截图p2.png"),
+    Path("samples/images/20260428 客户询价 带图列表截图.png"),
+    Path("samples/images/20260430 客户需求 带结构图 word截图 非常规列表.jpg"),
+    Path("samples/images/20260430 客户询价 带结构图 两列分栏 列表截图.png"),
 ]
 
 
