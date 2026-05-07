@@ -16,6 +16,7 @@ import random
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -156,12 +157,107 @@ def _init_worker(smiles_pool: list[str] | None = None) -> None:
         _WORKER_SMILES_POOL = smiles_pool
 
 
+@lru_cache(maxsize=8)
+def _load_font(size: int) -> Any | None:
+    """Try to load a system CJK font; return None if none found."""
+    from PIL import ImageFont
+
+    candidates = [
+        # Windows
+        Path(r"C:/Windows/Fonts/msyh.ttc"),      # Microsoft YaHei
+        Path(r"C:/Windows/Fonts/simhei.ttf"),    # SimHei
+        Path(r"C:/Windows/Fonts/simsun.ttc"),    # SimSun
+        Path(r"C:/Windows/Fonts/msgothic.ttc"),  # MS Gothic
+        # Linux
+        Path("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"),
+        Path("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"),
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+        # macOS
+        Path("/System/Library/Fonts/PingFang.ttc"),
+        Path("/Library/Fonts/Arial Unicode.ttf"),
+    ]
+    for cand in candidates:
+        if cand.exists():
+            try:
+                return ImageFont.truetype(str(cand), size=size)
+            except Exception:
+                continue
+    return None
+
+
+def _break_word(
+    draw: Any,
+    word: str,
+    font: Any | None,
+    max_width: int,
+) -> list[str]:
+    """Break a single long word into lines that fit within max_width."""
+    lines: list[str] = []
+    current = ""
+    for char in word:
+        test = current + char
+        bbox = draw.textbbox((0, 0), test, font=font)
+        if bbox[2] - bbox[0] <= max_width:
+            current = test
+        else:
+            if current:
+                lines.append(current)
+            current = char
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _wrap_text(
+    draw: Any,
+    text: str,
+    font: Any | None,
+    max_width: int,
+) -> list[str]:
+    """Wrap text into lines that fit within max_width."""
+    if not text:
+        return [""]
+
+    # Try single line first
+    bbox = draw.textbbox((0, 0), text, font=font)
+    if bbox[2] - bbox[0] <= max_width:
+        return [text]
+
+    lines: list[str] = []
+    current_line = ""
+    words = text.split(" ")
+
+    for word in words:
+        test = word if not current_line else current_line + " " + word
+        bbox = draw.textbbox((0, 0), test, font=font)
+        if bbox[2] - bbox[0] <= max_width:
+            current_line = test
+        else:
+            if current_line:
+                lines.append(current_line)
+                current_line = word
+                # Check if word itself is too long for a fresh line
+                bbox_word = draw.textbbox((0, 0), word, font=font)
+                if bbox_word[2] - bbox_word[0] > max_width:
+                    lines.extend(_break_word(draw, word, font, max_width))
+                    current_line = ""
+            else:
+                # Empty line but word still too long
+                lines.extend(_break_word(draw, word, font, max_width))
+                current_line = ""
+
+    if current_line:
+        lines.append(current_line)
+    return lines
+
+
 def _render_structure(smiles: str, target_size: tuple[int, int]) -> Any | None:
     """Render a SMILES structure to a PIL Image, or None on failure."""
     from PIL import Image
+    from rdkit.Chem import Draw
+
     from prepare_traindata.image import trim
     from prepare_traindata.rdkit_chem import d_opts
-    from rdkit.Chem import Draw
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
@@ -222,8 +318,8 @@ class SampleResult:
 
 def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
     from PIL import Image, ImageDraw
-    from prepare_traindata import text_vocab
-    from prepare_traindata import watermark_utils
+
+    from prepare_traindata import text_vocab, watermark_utils
 
     rng = random.Random(cfg.seed)
 
@@ -298,20 +394,49 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
                     placed_structure = True
 
             if not placed_structure:
-                # Draw text centered in cell
+                # Draw text centered in cell (with wrapping)
                 text = text_vocab.get_random_text(rng)
-                # Use default font; measure via textbbox
                 text_color = rng.choice([
                     (30, 30, 30),
                     (0, 0, 0),
                     (50, 50, 50),
                 ])
-                bbox = draw.textbbox((0, 0), text)
-                tw = bbox[2] - bbox[0]
-                th = bbox[3] - bbox[1]
-                tx = x_cursor + (col_w - tw) // 2
-                ty = y_cursor + (row_h - th) // 2
-                draw.text((tx, ty), text, fill=text_color)
+                # Pick font size proportional to cell height (clamp 9–16 px)
+                font_size = max(9, min(content_h // 3, 16))
+                font = _load_font(font_size)
+                wrapped = _wrap_text(draw, text, font, content_w)
+
+                # Measure a single line to get line height
+                if font is not None:
+                    sample_bbox = draw.textbbox((0, 0), "国", font=font)
+                else:
+                    sample_bbox = draw.textbbox((0, 0), "A")
+                line_h = sample_bbox[3] - sample_bbox[1]
+                total_text_h = len(wrapped) * line_h
+                # Clamp total height so it doesn't overflow the cell
+                max_text_h = content_h
+                if total_text_h > max_text_h and len(wrapped) > 1:
+                    # Try to shrink font by one step and re-wrap
+                    smaller_font = _load_font(max(9, font_size - 2))
+                    wrapped = _wrap_text(draw, text, smaller_font, content_w)
+                    if smaller_font is not None:
+                        sample_bbox = draw.textbbox((0, 0), "国", font=smaller_font)
+                    else:
+                        sample_bbox = draw.textbbox((0, 0), "A")
+                    line_h = sample_bbox[3] - sample_bbox[1]
+                    total_text_h = len(wrapped) * line_h
+                    font = smaller_font
+
+                start_y = y_cursor + (row_h - total_text_h) // 2
+                for line in wrapped:
+                    bbox = draw.textbbox((0, 0), line, font=font)
+                    tw = bbox[2] - bbox[0]
+                    tx = x_cursor + (col_w - tw) // 2
+                    if font is not None:
+                        draw.text((tx, start_y), line, fill=text_color, font=font)
+                    else:
+                        draw.text((tx, start_y), line, fill=text_color)
+                    start_y += line_h
 
             x_cursor += col_w
         y_cursor += row_h
@@ -537,13 +662,21 @@ def main(
         val_path = annotations_dir / "instance_val.json"
         train_path.write_bytes(
             orjson.dumps(
-                {"images": train_images, "annotations": train_anns, "categories": CATEGORIES},
+                {
+                    "images": train_images,
+                    "annotations": train_anns,
+                    "categories": CATEGORIES,
+                },
                 option=orjson.OPT_INDENT_2,
             )
         )
         val_path.write_bytes(
             orjson.dumps(
-                {"images": val_images, "annotations": val_anns, "categories": CATEGORIES},
+                {
+                    "images": val_images,
+                    "annotations": val_anns,
+                    "categories": CATEGORIES,
+                },
                 option=orjson.OPT_INDENT_2,
             )
         )
@@ -558,7 +691,11 @@ def main(
         ann_path = annotations_dir / "instance_train.json"
         ann_path.write_bytes(
             orjson.dumps(
-                {"images": coco_images, "annotations": coco_annotations, "categories": CATEGORIES},
+                {
+                    "images": coco_images,
+                    "annotations": coco_annotations,
+                    "categories": CATEGORIES,
+                },
                 option=orjson.OPT_INDENT_2,
             )
         )
