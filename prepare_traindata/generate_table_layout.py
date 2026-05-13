@@ -335,22 +335,10 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
 
     draw = ImageDraw.Draw(canvas)
 
-    # Draw table cell backgrounds as white rectangles (so watermark doesn't
-    # interfere with readability), then draw borders on top.
+    # Draw table cell backgrounds as white rectangles only when there is no
+    # watermark, so that the watermark remains visible inside cells.
     table_x = MARGIN
     table_y = MARGIN
-
-    # Cell backgrounds
-    y_cursor = table_y
-    for row_h in cfg.row_heights:
-        x_cursor = table_x
-        for col_w in cfg.col_widths:
-            draw.rectangle(
-                [x_cursor, y_cursor, x_cursor + col_w, y_cursor + row_h],
-                fill=(255, 255, 255),
-            )
-            x_cursor += col_w
-        y_cursor += row_h
 
     # Place contents and collect structure placements
     placements: list[StructurePlacement] = []

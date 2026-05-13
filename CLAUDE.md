@@ -44,12 +44,18 @@
 │
 ├── prepare_traindata/                  # 数据准备工具链
 │   ├── __init__.py
+│   ├── cli.py                          # click 共享 CLI 选项
 │   ├── image.py                        # trim(im, margin=5) — 裁剪白边
 │   ├── rdkit_chem.py                   # RDKit 渲染辅助（molecule_to_img）
+│   ├── categories.py                   # PP-DocLayoutV3 25 类 CATEGORIES 定义
+│   ├── text_vocab.py                   # 随机化学文本词库（中英混合）
+│   ├── watermark_utils.py              # 水印生成器
 │   ├── generate_synthetic_layout.py    # 【旧版】随机散落布局合成数据
 │   ├── generate_dense_layout.py        # 【当前使用】密集垂直排列合成数据
+│   ├── generate_table_layout.py        # 表格布局合成数据（结构式 + 文本混排）
+│   ├── generate_text_mix_layout.py     # 图文混排合成数据（pathway / vertical / paragraph）
 │   ├── remap_and_split.py              # COCO → PaddleX 格式转换（category_id 映射 + 加 segmentation/read_order + train/val 拆分）
-│   └── merge_datasets.py               # 多数据集合并（synthetic + dense → merged）
+│   └── merge_datasets.py               # 多数据集合并（synthetic + dense + text_mix → merged）
 │
 ├── data/
 │   ├── synthetic_chem/                 # 【旧版】随机布局合成数据 (~5000张)
@@ -105,14 +111,41 @@ uv run python -m prepare_traindata.remap_and_split
 - 按 top-to-bottom、left-to-right 排序生成 `read_order`
 - 90/10 拆分为 `instance_train.json` / `instance_val.json`
 
-### 4.3 合并多个数据集（可选）
+### 4.3 图文混排数据（text + image 联合训练）
 
 ```bash
-uv run python -m prepare_traindata.merge_datasets
+# 生成 1000 张图文混排合成图（3 种布局模式随机选择）
+uv run python -m prepare_traindata.generate_text_mix_layout \
+  --num-samples 1000 \
+  --output-dir data/text_mix_layout \
+  --min-structures 2 \
+  --max-structures 5 \
+  --min-cols 1 \
+  --max-cols 3 \
+  --watermark \
+  --workers 4
 ```
 
-**输入**：`data/synthetic_chem/` + `data/dense_layout/`  
-**输出**：`data/merged_chem/`（统一 ID、重新分配 read_order）
+**`generate_text_mix_layout.py` 行为：**
+- 同时检测 `image` (14) 和 `text` (22) 两类
+- 三种布局模式随机出现：
+  - **pathway**：标题 + 横向结构式（2-5 个）+ 矢量箭头 + 反应条件标签 + 底部备注
+  - **vertical**：标题 + 1-3 列（结构式 + 元数据文本）+ 底部备注
+  - **paragraph**：顶部文本段落 + 结构式行/2×2 网格 + 底部文本段落
+- 每个文本行**独立 bbox**，不合并段落
+- 箭头标签仅在宽度小于箭头间隙时绘制，防止与结构式重叠
+- 画布自动扩展防止内容溢出
+- 精确的 text bbox：使用 `textbbox` 的 ink 偏移量，确保 bbox 完全包裹文字像素
+
+### 4.4 合并多个数据集（可选）
+
+```bash
+uv run python -m prepare_traindata.merge_datasets \
+  --datasets data/dense_layout data/table_layout data/text_mix_layout
+```
+
+**输入**：`data/dense_layout/` + `data/table_layout/` + `data/text_mix_layout/`  
+**输出**：`data/merged_all/`（统一 ID、重新分配 read_order）
 
 ---
 
@@ -255,6 +288,10 @@ SubModules:
 | `freeze_at` 参数冲突 | 🟡 观察 | 外层 YAML 设置 `freeze_at: 3`，但展开后 `PPHGNetV2.freeze_at: 0`，以展开配置为准 |
 | `epochs_iters: 1` vs `epoch: 2` | 🟡 观察 | 外层配置为 1，展开后为 2，实际跑了 2 epoch |
 | 其他类别边缘检测精度 | 🟡 观察 | 低频类（`seal`, `vertical_text`, `algorithm`）可能轻微下降 |
+| 中文/特殊字符渲染 | 🟢 已解决 | `generate_table_layout.py` 和 `generate_text_mix_layout.py` 已加载系统 CJK 字体 |
+| 单元格文本自动换行 | 🟢 已解决 | `generate_table_layout.py` 已支持自动换行 + 字体大小回退 |
+| 水印与单元格背景冲突 | 🟢 已解决 | 仅在 `--no-watermark` 时绘制白色单元格背景 |
+| 图文混排训练数据 | 🟢 已完成 | `generate_text_mix_layout.py` 生成 1000 张，同时标注 `image`(14) + `text`(22) |
 
 ### 8.2 后续优化方向
 
@@ -287,7 +324,83 @@ SubModules:
 
 ---
 
-## 10. 参考链接
+## 10. 代码规范
+
+### 10.1 通用约定
+
+| 项目 | 约定 |
+|------|------|
+| Python 版本 | >= 3.12 |
+| 类型注解 | 全部函数签名必须带类型注解，使用 `\|None` 而非 `Optional` |
+| 文件头 | 每个文件以 `from __future__ import annotations` 开头 |
+| 导入顺序 | stdlib -> 第三方库 -> 本地模块（按 ruff/isort 规则） |
+| 行宽 | 88 字符（black/ruff 默认） |
+| 路径 | 统一使用 `pathlib.Path`，避免字符串路径 |
+| JSON I/O | 性能敏感场景用 `orjson` 替代标准库 `json` |
+| CLI | 使用 `click`，共享选项放在 `prepare_traindata/cli.py` |
+
+### 10.2 命名规范
+
+| 类型 | 风格 | 示例 |
+|------|------|------|
+| 模块常量 | `UPPER_CASE` | `CANVAS_MARGIN: int = 15` |
+| 函数/变量 | `snake_case` | `build_configs()`, `load_valid_smiles()` |
+| 类 | `PascalCase` | `SampleConfig`, `StructurePlacement` |
+| 配置类 | `@dataclass(frozen=True)` | 所有 worker 间传递的配置 |
+| 私有函数 | `_leading_underscore` | `_render_structure()`, `_load_font()` |
+
+### 10.3 数据生成器开发规范
+
+1. **Worker 安全（Windows `spawn` 关键）**
+   - 所有进程间传递的配置必须使用 `dataclass(frozen=True)`
+   - 禁止在 worker 函数中访问模块级全局变量
+   - 通过 `ProcessPoolExecutor(initializer=..., initargs=...)` 传递 `SMILES` 池等共享状态
+   - 示例：`generate_dense_layout.py:150-157`
+
+2. **输出格式**
+   - 直接使用 PaddleX 扩展 COCO 格式：
+     ```json
+     {
+       "images": [...],
+       "annotations": [...],
+       "categories": CATEGORIES  // 25类完整列表
+     }
+     ```
+   - `category_id` 必须使用 `CAT_ID_IMAGE` (14) 或 `CAT_ID_TABLE` (21)，禁止硬编码魔术数字
+   - 每个 annotation 必须包含：`bbox`, `area`, `segmentation`（矩形多边形）, `read_order`, `iscrowd`
+
+3. **随机性与可复现**
+   - 使用 `random.Random(seed)` 创建局部 RNG，不触碰全局 `random`
+   - `seed` 通过 CLI `--seed` 参数传入，默认 `42`
+
+4. **共享模块**
+   - `prepare_traindata/categories.py` — 25 类 CATEGORIES 和 CAT_ID_* 常量
+   - `prepare_traindata/cli.py` — click 共享选项（如 `output_dir`, `num_samples`, `split`）
+   - `prepare_traindata/watermark_utils.py` — 水印生成器
+   - `prepare_traindata/text_vocab.py` — 随机化学文本词库
+
+5. **文件组织**
+   - 每个 generator 独立文件：`generate_dense_layout.py`, `generate_table_layout.py`, `generate_text_mix_layout.py`, `generate_synthetic_layout.py`
+   - 每文件 < 600 行；若膨胀则提取 helper 到新模块
+   - 常量放在模块顶部 `CONSTANTS` 区块
+   - `load_valid_smiles()` 等通用 helper 可复用，但每个文件保留独立 copy 以避免跨模块导入在 worker spawn 中失效
+
+### 10.4 工具链
+
+```bash
+# 格式 + lint
+ruff check prepare_traindata/ --select E,W,I,UP,B,A,C4,ICN,PIE
+ruff check --fix .
+
+# 运行 generator
+uv run python -m prepare_traindata.generate_dense_layout --help
+uv run python -m prepare_traindata.generate_table_layout --num-samples 10 --watermark
+uv run python -m prepare_traindata.generate_text_mix_layout --num-samples 1000 --workers 4
+```
+
+---
+
+## 11. 参考链接
 
 - [PaddleX Layout Detection 文档](https://paddlepaddle.github.io/PaddleX/3.0-rc/en/module_usage/tutorials/ocr_modules/layout_detection.html)
 - [PaddlePaddle GPU 安装指南](https://www.paddlepaddle.org.cn/install/quick?docurl=/documentation/docs/zh/develop/install/pip/windows-pip.html)

@@ -39,3 +39,4 @@ CATEGORIES: list[dict[str, Any]] = [
 # Convenience lookups
 CAT_ID_TABLE: int = 21
 CAT_ID_IMAGE: int = 14
+CAT_ID_TEXT: int = 22

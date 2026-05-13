@@ -12,3 +12,5 @@ output/
 data/
 !data/table_layout/annotations/
 .idea/
+/.claude/
+/docs/

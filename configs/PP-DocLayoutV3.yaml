@@ -2,6 +2,7 @@ Global:
   model: PP-DocLayoutV3
   mode: train
   dataset_dir: "data/merged_all"
+#  dataset_dir: "data/text_mix_layout"
   device: gpu:0
   output: "output/ppdoclayoutv3_ft"
 
