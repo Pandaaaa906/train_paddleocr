@@ -13,4 +13,5 @@ data/
 !data/table_layout/annotations/
 .idea/
 /.claude/
-/docs/
+/docs/*
+!/docs/superpowers/
