@@ -24,7 +24,7 @@ import click
 import orjson
 from rdkit import Chem, RDLogger
 
-from prepare_traindata import text_vocab
+from prepare_traindata import text_vocab, watermark_utils
 from prepare_traindata.categories import CAT_ID_IMAGE, CAT_ID_TABLE, CATEGORIES
 from prepare_traindata.cli import (
     cell_height_range,
@@ -339,8 +339,6 @@ def _render_inner_table(
     """
     from PIL import Image, ImageDraw
 
-    from prepare_traindata import text_vocab, watermark_utils
-
     rng = random.Random(cfg.seed)
 
     total_table_w = sum(cfg.col_widths)
@@ -355,8 +353,6 @@ def _render_inner_table(
 
     draw = ImageDraw.Draw(canvas)
 
-    # Draw table cell backgrounds as white rectangles only when there is no
-    # watermark, so that the watermark remains visible inside cells.
     table_x = margin
     table_y = margin
 
@@ -547,8 +543,6 @@ def _render_inner_table(
 def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
     from PIL import Image, ImageDraw
 
-    from prepare_traindata import watermark_utils
-
     if not cfg.nested:
         inner_img, inner_annotations = _render_inner_table(cfg)
         # Save directly (existing behaviour)
@@ -629,23 +623,31 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
         width=1,
     )
 
-    # 6. Translate inner annotations into NEW dicts (immutable)
+    # 6. Translate inner annotations into fresh dicts (immutable)
     translated_annotations: list[dict[str, Any]] = []
     for ann in inner_raw_annotations:
-        new_ann = dict(ann)
-        new_ann["bbox"] = [
-            ann["bbox"][0] + paste_x,
-            ann["bbox"][1] + paste_y,
-            ann["bbox"][2],
-            ann["bbox"][3],
-        ]
         old_seg = ann["segmentation"][0]
         new_seg = []
         for i in range(0, len(old_seg), 2):
             new_seg.append(old_seg[i] + paste_x)
             new_seg.append(old_seg[i + 1] + paste_y)
-        new_ann["segmentation"] = [new_seg]
-        translated_annotations.append(new_ann)
+        translated_annotations.append(
+            {
+                "id": ann["id"],
+                "image_id": ann["image_id"],
+                "category_id": ann["category_id"],
+                "bbox": [
+                    ann["bbox"][0] + paste_x,
+                    ann["bbox"][1] + paste_y,
+                    ann["bbox"][2],
+                    ann["bbox"][3],
+                ],
+                "area": ann["area"],
+                "iscrowd": ann["iscrowd"],
+                "segmentation": [new_seg],
+                "read_order": ann["read_order"],
+            }
+        )
 
     # 7. Save
     filename = f"table_{cfg.sample_idx:06d}.png"
