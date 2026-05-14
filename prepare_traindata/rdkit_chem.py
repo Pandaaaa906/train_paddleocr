@@ -45,6 +45,7 @@ HIGHLIGHT_COLORS: list[tuple[float, float, float]] = [
 def build_random_draw_options(rng: random.Random) -> rdMolDraw2D.MolDrawOptions:
     """Return a MolDrawOptions with randomized styling."""
     opts = rdMolDraw2D.MolDrawOptions()
+    opts.clearBackground = True
 
     # 1. Background
     bg = rng.choices(BACKGROUNDS, weights=BACKGROUND_WEIGHTS)[0]
@@ -58,7 +59,7 @@ def build_random_draw_options(rng: random.Random) -> rdMolDraw2D.MolDrawOptions:
     opts.comicMode = rng.random() < 0.30
 
     # 4. Fixed options
-    opts.baseFontSize = 0.4
+    opts.baseFontSize = rng.uniform(0.4, 0.8)
     opts.padding = 0.01
     opts.addStereoAnnotation = True
     opts.centreMoleculesBeforeDrawing = True
@@ -105,12 +106,6 @@ def render_mol_random(
     if img is None:
         return None
 
-    if img.mode == "RGBA":
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        bg.paste(img, mask=img.split()[3])
-        img = bg
-    elif img.mode != "RGB":
-        img = img.convert("RGB")
     return img
 
 
