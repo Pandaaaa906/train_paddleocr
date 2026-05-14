@@ -26,11 +26,11 @@ d_opts.simplifiedStereoGroupLabel = True
 d_opts.setBackgroundColour((1, 1, 1, 0))  # Transparent white background
 
 BACKGROUNDS: list[tuple[float, float, float, float]] = [
-    (1.0, 1.0, 1.0, 0.0),    # transparent 15%
-    (1.0, 1.0, 1.0, 1.0),    # white      40%
-    (0.98, 0.96, 0.94, 1.0),  # beige      25%
-    (0.94, 0.97, 1.0, 1.0),   # light blue 12%
-    (0.95, 0.95, 0.95, 1.0),  # light gray  8%
+    (255, 255, 255, 0),    # transparent 15%
+    (255, 255, 255, 255),    # white      40%
+    (249, 244, 239, 255),  # beige      25%
+    (239, 247, 255, 255),   # light blue 12%
+    (242, 242, 242, 255),  # light gray  8%
 ]
 
 BACKGROUND_WEIGHTS: list[int] = [15, 40, 25, 12, 8]
@@ -42,14 +42,9 @@ HIGHLIGHT_COLORS: list[tuple[float, float, float]] = [
 ]
 
 
-def build_random_draw_options(rng: random.Random) -> rdMolDraw2D.MolDrawOptions:
+def build_random_draw_options(opts, rng: random.Random) -> rdMolDraw2D.MolDrawOptions:
     """Return a MolDrawOptions with randomized styling."""
-    opts = rdMolDraw2D.MolDrawOptions()
-    opts.clearBackground = True
-
-    # 1. Background
-    bg = rng.choices(BACKGROUNDS, weights=BACKGROUND_WEIGHTS)[0]
-    opts.setBackgroundColour(bg)
+    opts.clearBackground = False
 
     # 2. Atom colour (60% gray ~ black)
     gray = rng.uniform(0.0, 0.4)
@@ -76,7 +71,9 @@ def render_mol_random(
     rng: random.Random,
 ) -> Image.Image | None:
     """Render a molecule with randomized styling. Returns None on failure."""
-    opts = build_random_draw_options(rng)
+    d2d = rdMolDraw2D.MolDraw2DCairo(size[0], size[1])
+    opts = d2d.drawOptions()
+    build_random_draw_options(opts, rng)
 
     highlight_atoms = None
     highlight_color = None
@@ -86,17 +83,18 @@ def render_mol_random(
         if heavy_atoms:
             n = min(rng.randint(1, 3), len(heavy_atoms))
             highlight_atoms = rng.sample(heavy_atoms, n)
-            highlight_color = rng.choice(HIGHLIGHT_COLORS)
+            highlight_color = { atom: rng.choice(HIGHLIGHT_COLORS) for atom in highlight_atoms }
+            pass
 
     try:
-        img = Draw.MolToImage(
+        d2d.DrawMolecule(
             mol,
-            size=size,
-            options=opts,
-            fitImage=True,
             highlightAtoms=highlight_atoms,
-            highlightColor=highlight_color,
+            highlightAtomColors=highlight_color,
         )
+        d2d.FinishDrawing()
+        png_data = d2d.GetDrawingText()
+        img = Image.open(BytesIO(png_data)).convert("RGBA")
         img = trim(img)
     except Exception:
         import logging
@@ -105,6 +103,10 @@ def render_mol_random(
 
     if img is None:
         return None
+    bg_color = rng.choices(BACKGROUNDS, weights=BACKGROUND_WEIGHTS)[0]
+    bg = Image.new("RGBA", img.size, bg_color)
+    bg.paste(img, mask=img.split()[3])
+    img = bg
 
     return img
 
