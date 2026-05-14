@@ -251,20 +251,21 @@ def _wrap_text(
     return lines
 
 
-def _render_structure(smiles: str, target_size: tuple[int, int]) -> Any | None:
+def _render_structure(
+    smiles: str,
+    target_size: tuple[int, int],
+    rng: random.Random,
+) -> Any | None:
     """Render a SMILES structure to a PIL Image, or None on failure."""
     from PIL import Image
-    from rdkit.Chem import Draw
 
-    from prepare_traindata.image import trim
-    from prepare_traindata.rdkit_chem import d_opts
+    from prepare_traindata.rdkit_chem import render_mol_random
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None
     try:
-        img = Draw.MolToImage(mol, size=target_size, options=d_opts, fitImage=True)
-        img = trim(img)
+        img = render_mol_random(mol, target_size, rng)
     except Exception:
         return None
 
@@ -344,10 +345,12 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
     placements: list[StructurePlacement] = []
     cell_iter = iter(cfg.cells)
     y_cursor = table_y
+    cell_idx = 0
     for row_idx, row_h in enumerate(cfg.row_heights):
         x_cursor = table_x
         for col_idx, col_w in enumerate(cfg.col_widths):
             cell = next(cell_iter)
+            cell_idx += 1
             content_x = x_cursor + CELL_PADDING
             content_y = y_cursor + CELL_PADDING
             content_w = col_w - CELL_PADDING * 2
@@ -359,12 +362,20 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
                 target_h = max(content_h, 1)
                 img = None
                 smiles_to_try = cell.smiles
-                for _ in range(3):
-                    img = _render_structure(smiles_to_try, (target_w, target_h))
+                struct_rng = random.Random(
+                    cfg.seed + cell_idx + (hash(smiles_to_try) & 0xFFFFFFFF)
+                )
+                for attempt in range(3):
+                    img = _render_structure(
+                        smiles_to_try, (target_w, target_h), struct_rng
+                    )
                     if img is not None:
                         break
                     if _WORKER_SMILES_POOL:
                         smiles_to_try = rng.choice(_WORKER_SMILES_POOL)
+                        struct_rng = random.Random(
+                            cfg.seed + cell_idx + (hash(smiles_to_try) & 0xFFFFFFFF)
+                        )
                 if img is not None:
                     # Ensure it fits with at least MIN_STRUCTURE_MARGIN on all sides
                     max_w = col_w - MIN_STRUCTURE_MARGIN * 2
