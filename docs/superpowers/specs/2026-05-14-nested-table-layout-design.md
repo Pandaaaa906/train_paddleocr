@@ -35,7 +35,7 @@ if nested:
     header_texts = tuple(
         text_vocab.get_random_text(rng) for _ in range(outer_rows - 1)
     )
-    # outer cell width = inner total width + 2 * OUTER_CELL_PADDING
+    # outer table width = inner total width + 2 * OUTER_CELL_PADDING + 2 * OUTER_MARGIN
     # outer header cell height = rng.randint(60, 100)
     # outer bottom cell height = inner total height + 2 * OUTER_CELL_PADDING
 else:
@@ -88,7 +88,7 @@ White background, optional watermark applied on the **outer** canvas only.
 
 - For each header cell:
   - Draw text centred (font size `max(12, row_h // 3)`, black)
-  - Draw 1 px bottom border
+  - Draw 1 px bottom border (the top border is provided by the full outer rectangle drawn in the next step)
 - Draw full 1 px outer rectangle around the whole outer table
 
 **Step 4 — Paste inner table**
@@ -104,7 +104,9 @@ For every `inner_annotation`:
 - `bbox[0] += paste_x`, `bbox[1] += paste_y`
 - Each segmentation vertex pair `x += paste_x, y += paste_y`
 
-`read_order` values remain unchanged.
+`read_order` values remain unchanged.  
+The inner table's single `table` annotation keeps `read_order=0`; inner structure `image` annotations keep their relative ordering starting from 1.  
+No new annotations are introduced for the outer frame.
 
 ### 4.3 Annotation Rules
 
