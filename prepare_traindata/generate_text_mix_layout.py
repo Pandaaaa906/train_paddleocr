@@ -175,20 +175,21 @@ def _load_font(size: int) -> Any | None:
     return None
 
 
-def _render_structure(smiles: str, target_size: tuple[int, int]) -> Any | None:
+def _render_structure(
+    smiles: str,
+    target_size: tuple[int, int],
+    rng: random.Random,
+) -> Any | None:
     """Render a SMILES structure to a PIL Image, or None on failure."""
     from PIL import Image
-    from rdkit.Chem import Draw
 
-    from prepare_traindata.image import trim
-    from prepare_traindata.rdkit_chem import d_opts
+    from prepare_traindata.rdkit_chem import render_mol_random
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None
     try:
-        img = Draw.MolToImage(mol, size=target_size, options=d_opts, fitImage=True)
-        img = trim(img)
+        img = render_mol_random(mol, target_size, rng)
     except Exception:
         return None
 
@@ -591,8 +592,9 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
 
     # Render structures
     structures: list[Any] = []
-    for s in cfg.smiles:
-        img = _render_structure(s, (220, 160))
+    for i, s in enumerate(cfg.smiles):
+        struct_rng = random.Random(cfg.seed + i + (hash(s) & 0xFFFFFFFF))
+        img = _render_structure(s, (220, 160), struct_rng)
         if img is not None:
             structures.append(img)
 
