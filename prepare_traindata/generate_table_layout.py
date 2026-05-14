@@ -24,6 +24,7 @@ import click
 import orjson
 from rdkit import Chem, RDLogger
 
+from prepare_traindata import text_vocab
 from prepare_traindata.categories import CAT_ID_IMAGE, CAT_ID_TABLE, CATEGORIES
 from prepare_traindata.cli import (
     cell_height_range,
@@ -50,6 +51,8 @@ SMILES_PATH: Path = Path("smiles.txt")
 MARGIN: int = 20
 CELL_PADDING: int = 10
 MIN_STRUCTURE_MARGIN: int = 5
+OUTER_CELL_PADDING: int = 10
+NESTED_PROB: float = 0.05
 
 CAT_TABLE: int = CAT_ID_TABLE
 CAT_IMAGE: int = CAT_ID_IMAGE
@@ -91,6 +94,8 @@ class SampleConfig:
     cells: tuple[CellConfig, ...]
     output_dir: Path
     use_watermark: bool
+    nested: bool = False
+    header_texts: tuple[str, ...] = ()
 
 
 def build_configs(
@@ -108,8 +113,19 @@ def build_configs(
     rng = random.Random(seed)
     configs: list[SampleConfig] = []
     for idx in range(num_samples):
-        num_cols = rng.randint(min_cols, max_cols)
-        num_rows = rng.randint(min_rows, max_rows)
+        nested = rng.random() < NESTED_PROB
+        if nested:
+            num_cols = rng.randint(3, 7)
+            num_rows = rng.randint(3, 10)
+            outer_header_rows = rng.randint(1, 2)
+            header_texts = tuple(
+                text_vocab.get_random_text(rng) for _ in range(outer_header_rows)
+            )
+        else:
+            num_cols = rng.randint(min_cols, max_cols)
+            num_rows = rng.randint(min_rows, max_rows)
+            header_texts = ()
+
         col_widths = tuple(rng.randint(*cell_width_range) for _ in range(num_cols))
         row_heights = tuple(rng.randint(*cell_height_range) for _ in range(num_rows))
         border_width = rng.randint(2, 4)
@@ -136,6 +152,8 @@ def build_configs(
                 cells=tuple(cells),
                 output_dir=Path("PLACEHOLDER"),
                 use_watermark=True,
+                nested=nested,
+                header_texts=header_texts,
             )
         )
     return configs
@@ -271,13 +289,6 @@ def _render_structure(
 
     if img is None:
         return None
-
-    if img.mode == "RGBA":
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        bg.paste(img, mask=img.split()[3])
-        img = bg
-    elif img.mode != "RGB":
-        img = img.convert("RGB")
     return img
 
 
@@ -317,7 +328,15 @@ class SampleResult:
     annotations: list[dict[str, Any]]
 
 
-def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
+def _render_inner_table(
+    cfg: SampleConfig,
+    margin: int = MARGIN,
+    apply_watermark: bool = True,
+) -> tuple[Any, list[dict[str, Any]]]:
+    """Render the inner table image and raw annotations.
+
+    Returns (pil_image, annotations_list).
+    """
     from PIL import Image, ImageDraw
 
     from prepare_traindata import text_vocab, watermark_utils
@@ -326,20 +345,20 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
 
     total_table_w = sum(cfg.col_widths)
     total_table_h = sum(cfg.row_heights)
-    canvas_w = MARGIN * 2 + total_table_w
-    canvas_h = MARGIN * 2 + total_table_h
+    canvas_w = margin * 2 + total_table_w
+    canvas_h = margin * 2 + total_table_h
 
     # White canvas, apply watermark
     canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
-    if cfg.use_watermark:
+    if apply_watermark and cfg.use_watermark:
         canvas = watermark_utils.apply_random_watermark(canvas, rng)
 
     draw = ImageDraw.Draw(canvas)
 
     # Draw table cell backgrounds as white rectangles only when there is no
     # watermark, so that the watermark remains visible inside cells.
-    table_x = MARGIN
-    table_y = MARGIN
+    table_x = margin
+    table_y = margin
 
     # Place contents and collect structure placements
     placements: list[StructurePlacement] = []
@@ -467,13 +486,6 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
             width=bw,
         )
 
-    # Save image
-    filename = f"table_{cfg.sample_idx:06d}.png"
-    images_dir = cfg.output_dir / "images"
-    out_path = images_dir / filename
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    canvas.save(out_path)
-
     # Build annotations
     annotations: list[dict[str, Any]] = []
 
@@ -529,12 +541,125 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
             }
         )
 
+    return canvas, annotations
+
+
+def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
+    from PIL import Image, ImageDraw
+
+    from prepare_traindata import watermark_utils
+
+    if not cfg.nested:
+        inner_img, inner_annotations = _render_inner_table(cfg)
+        # Save directly (existing behaviour)
+        filename = f"table_{cfg.sample_idx:06d}.png"
+        images_dir = cfg.output_dir / "images"
+        out_path = images_dir / filename
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        inner_img.save(out_path)
+        return SampleResult(
+            img_id=cfg.sample_idx,
+            filename=filename,
+            width=inner_img.size[0],
+            height=inner_img.size[1],
+            annotations=inner_annotations,
+        )
+
+    # ---- NESTED PATH ----
+    # 1. Render inner table WITHOUT margin and WITHOUT watermark
+    inner_img, inner_raw_annotations = _render_inner_table(
+        cfg, margin=0, apply_watermark=False
+    )
+    inner_w, inner_h = inner_img.size
+
+    # 2. Compute outer dimensions from actual inner size + header rows
+    rng = random.Random(cfg.seed)
+    header_heights = tuple(rng.randint(60, 100) for _ in cfg.header_texts)
+    outer_total_h = sum(header_heights) + inner_h + OUTER_CELL_PADDING * 2
+    outer_margin = MARGIN
+    outer_w = outer_margin * 2 + inner_w + OUTER_CELL_PADDING * 2
+    outer_h = outer_margin * 2 + outer_total_h
+
+    canvas = Image.new("RGB", (outer_w, outer_h), (255, 255, 255))
+    if cfg.use_watermark:
+        rng = random.Random(cfg.seed)
+        canvas = watermark_utils.apply_random_watermark(canvas, rng)
+
+    draw = ImageDraw.Draw(canvas)
+
+    # 3. Draw outer table (no annotation for outer frame per spec)
+    table_x = outer_margin
+    table_y = outer_margin
+    table_w = inner_w + OUTER_CELL_PADDING * 2
+    table_h = outer_total_h
+
+    # Header cells
+    y_cursor = table_y
+    for text, row_h in zip(cfg.header_texts, header_heights):
+        font_size = max(12, row_h // 3)
+        font = _load_font(font_size)
+        text_color = (0, 0, 0) if rng.random() < 0.5 else (30, 30, 30)
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+        tx = table_x + (table_w - tw) // 2
+        ty = y_cursor + (row_h - th) // 2
+        if font is not None:
+            draw.text((tx, ty), text, fill=text_color, font=font)
+        else:
+            draw.text((tx, ty), text, fill=text_color)
+
+        # Bottom border
+        y_cursor += row_h
+        draw.line(
+            [(table_x, y_cursor), (table_x + table_w, y_cursor)],
+            fill=(0, 0, 0),
+            width=1,
+        )
+
+    # 4. Paste inner table into bottom cell
+    paste_x = table_x + OUTER_CELL_PADDING
+    paste_y = y_cursor + OUTER_CELL_PADDING
+    canvas.paste(inner_img, (paste_x, paste_y))
+
+    # 5. Draw full outer rectangle
+    draw.rectangle(
+        [table_x, table_y, table_x + table_w, table_y + table_h],
+        outline=(0, 0, 0),
+        width=1,
+    )
+
+    # 6. Translate inner annotations into NEW dicts (immutable)
+    translated_annotations: list[dict[str, Any]] = []
+    for ann in inner_raw_annotations:
+        new_ann = dict(ann)
+        new_ann["bbox"] = [
+            ann["bbox"][0] + paste_x,
+            ann["bbox"][1] + paste_y,
+            ann["bbox"][2],
+            ann["bbox"][3],
+        ]
+        old_seg = ann["segmentation"][0]
+        new_seg = []
+        for i in range(0, len(old_seg), 2):
+            new_seg.append(old_seg[i] + paste_x)
+            new_seg.append(old_seg[i + 1] + paste_y)
+        new_ann["segmentation"] = [new_seg]
+        translated_annotations.append(new_ann)
+
+    # 7. Save
+    filename = f"table_{cfg.sample_idx:06d}.png"
+    images_dir = cfg.output_dir / "images"
+    out_path = images_dir / filename
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(out_path)
+
     return SampleResult(
         img_id=cfg.sample_idx,
         filename=filename,
-        width=canvas_w,
-        height=canvas_h,
-        annotations=annotations,
+        width=outer_w,
+        height=outer_h,
+        annotations=translated_annotations,
     )
 
 
@@ -612,6 +737,8 @@ def main(
             cells=c.cells,
             output_dir=output_path,
             use_watermark=watermark,
+            nested=c.nested,
+            header_texts=c.header_texts,
         )
         for c in configs
     ]
