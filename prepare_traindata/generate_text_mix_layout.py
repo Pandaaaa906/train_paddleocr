@@ -21,7 +21,7 @@ from typing import Any
 
 import click
 import orjson
-from rdkit import Chem, RDLogger
+from rdkit import RDLogger
 
 from prepare_traindata import text_vocab, watermark_utils
 from prepare_traindata.categories import CAT_ID_IMAGE, CAT_ID_TEXT, CATEGORIES
@@ -37,6 +37,8 @@ from prepare_traindata.cli import (
     watermark,
     workers,
 )
+from prepare_traindata.rdkit_chem import render_smiles_random
+from prepare_traindata.utils import load_valid_smiles
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -54,20 +56,6 @@ ARROW_HEAD_LEN: int = 12   # arrow head triangle size
 # ---------------------------------------------------------------------------
 # Data helpers
 # ---------------------------------------------------------------------------
-
-
-def load_valid_smiles(path: Path) -> list[str]:
-    valid: list[str] = []
-    with path.open("r", encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line:
-                continue
-            mol = Chem.MolFromSmiles(line)
-            if mol is not None:
-                valid.append(line)
-    return valid
-
 
 @dataclass(frozen=True)
 class TextLine:
@@ -173,22 +161,6 @@ def _load_font(size: int) -> Any | None:
             except Exception:
                 continue
     return None
-
-
-def _render_structure(
-    smiles: str,
-    target_size: tuple[int, int],
-    rng: random.Random,
-) -> Any | None:
-    """Render a SMILES structure to a PIL Image, or None on failure."""
-
-    from prepare_traindata.rdkit_chem import render_mol_random
-
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
-    img = render_mol_random(mol, target_size, rng)
-    return img
 
 
 def _draw_arrow(
@@ -580,7 +552,7 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
     structures: list[Any] = []
     for i, s in enumerate(cfg.smiles):
         struct_rng = random.Random(cfg.seed + i + (hash(s) & 0xFFFFFFFF))
-        img = _render_structure(s, (220, 160), struct_rng)
+        img = render_smiles_random(s, (220, 160), struct_rng)
         if img is not None:
             structures.append(img)
 

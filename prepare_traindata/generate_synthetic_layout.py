@@ -19,7 +19,7 @@ from typing import NamedTuple
 
 import click
 import orjson
-from rdkit import Chem, RDLogger
+from rdkit import RDLogger
 
 from prepare_traindata.categories import CAT_ID_IMAGE, CATEGORIES
 from prepare_traindata.cli import (
@@ -34,6 +34,8 @@ from prepare_traindata.cli import (
     watermark,
     workers,
 )
+from prepare_traindata.rdkit_chem import render_smiles_random
+from prepare_traindata.utils import load_valid_smiles
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -127,36 +129,6 @@ def _init_worker():
         sys.path.insert(0, str(project_root))
 
 
-def _render_one(
-    smiles: str,
-    size: tuple[int, int],
-    opts,
-) -> object | None:
-    """Render a single SMILES to a trimmed RGB PIL Image."""
-    from PIL import Image
-
-    from prepare_traindata.image import trim
-
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
-    try:
-        from rdkit.Chem import Draw
-
-        img = Draw.MolToImage(mol, size=size, options=opts, fitImage=True)
-        img = trim(img)
-    except Exception:  # noqa: BLE001
-        return None
-
-    if img.mode == "RGBA":
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        bg.paste(img, mask=img.split()[3])
-        img = bg
-    elif img.mode != "RGB":
-        img = img.convert("RGB")
-    return img
-
-
 def _boxes_overlap(
     a: tuple[int, int, int, int], b: tuple[int, int, int, int]
 ) -> bool:
@@ -176,12 +148,12 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
     from PIL import Image
 
     from prepare_traindata import watermark_utils
-    from prepare_traindata.rdkit_chem import d_opts
 
     rng = random.Random(cfg.seed)
     images: list[Image.Image] = []
-    for s, size in zip(cfg.smiles, cfg.sizes):
-        img = _render_one(s, size, d_opts)
+    for i, (s, size) in enumerate(zip(cfg.smiles, cfg.sizes)):
+        struct_rng = random.Random(cfg.seed + i + (hash(s) & 0xFFFFFFFF))
+        img = render_smiles_random(s, size, struct_rng)
         if img is not None:
             images.append(img)
         if len(images) >= len(cfg.smiles):
@@ -303,7 +275,7 @@ def main(
     structure_height_range: tuple[int, int],
 ) -> int:
     print("Loading SMILES …")
-    smiles_list = _load_valid_smiles(SMILES_PATH)
+    smiles_list = load_valid_smiles(SMILES_PATH)
     total = len(smiles_list)
     print(f"  {total:,} valid SMILES loaded.")
     if total < max_structures:
@@ -392,20 +364,6 @@ def main(
     print(f"  Total images written: {len(coco_images):,}")
     print(f"  Total boxes written:  {len(coco_annotations):,}")
     return 0
-
-
-def _load_valid_smiles(path: Path) -> list[str]:
-    """Return SMILES strings that RDKit can parse."""
-    valid: list[str] = []
-    with path.open("r", encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line:
-                continue
-            mol = Chem.MolFromSmiles(line)
-            if mol is not None:
-                valid.append(line)
-    return valid
 
 
 if __name__ == "__main__":

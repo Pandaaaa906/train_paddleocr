@@ -22,7 +22,7 @@ from typing import Any
 
 import click
 import orjson
-from rdkit import Chem, RDLogger
+from rdkit import RDLogger
 
 from prepare_traindata import text_vocab, watermark_utils
 from prepare_traindata.categories import CAT_ID_IMAGE, CAT_ID_TABLE, CATEGORIES
@@ -41,6 +41,8 @@ from prepare_traindata.cli import (
     watermark,
     workers,
 )
+from prepare_traindata.rdkit_chem import render_smiles_random
+from prepare_traindata.utils import load_valid_smiles
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -52,7 +54,7 @@ MARGIN: int = 20
 CELL_PADDING: int = 10
 MIN_STRUCTURE_MARGIN: int = 5
 OUTER_CELL_PADDING: int = 10
-NESTED_PROB: float = 0.05
+NESTED_PROB: float = 0.08
 
 CAT_TABLE: int = CAT_ID_TABLE
 CAT_IMAGE: int = CAT_ID_IMAGE
@@ -61,20 +63,6 @@ CAT_IMAGE: int = CAT_ID_IMAGE
 # ---------------------------------------------------------------------------
 # Data helpers
 # ---------------------------------------------------------------------------
-
-
-def load_valid_smiles(path: Path) -> list[str]:
-    valid: list[str] = []
-    with path.open("r", encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line:
-                continue
-            mol = Chem.MolFromSmiles(line)
-            if mol is not None:
-                valid.append(line)
-    return valid
-
 
 @dataclass(frozen=True)
 class CellConfig:
@@ -269,22 +257,6 @@ def _wrap_text(
     return lines
 
 
-def _render_structure(
-    smiles: str,
-    target_size: tuple[int, int],
-    rng: random.Random,
-) -> Any | None:
-    """Render a SMILES structure to a PIL Image, or None on failure."""
-
-    from prepare_traindata.rdkit_chem import render_mol_random
-
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
-    img = render_mol_random(mol, target_size, rng)
-    return img
-
-
 def _resize_to_fit(
     img: Any,
     max_w: int,
@@ -374,7 +346,7 @@ def _render_inner_table(
                     cfg.seed + cell_idx + (hash(smiles_to_try) & 0xFFFFFFFF)
                 )
                 for attempt in range(3):
-                    img = _render_structure(
+                    img = render_smiles_random(
                         smiles_to_try, (target_w, target_h), struct_rng
                     )
                     if img is not None:

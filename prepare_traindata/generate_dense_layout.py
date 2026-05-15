@@ -22,7 +22,7 @@ from typing import Any, NamedTuple
 
 import click
 import orjson
-from rdkit import Chem, RDLogger
+from rdkit import RDLogger
 
 from prepare_traindata import watermark_utils
 from prepare_traindata.categories import CAT_ID_IMAGE, CATEGORIES
@@ -38,6 +38,8 @@ from prepare_traindata.cli import (
     watermark,
     workers,
 )
+from prepare_traindata.rdkit_chem import render_smiles_random
+from prepare_traindata.utils import load_valid_smiles
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -54,19 +56,6 @@ ROW_GAP: int = 5         # vertical gap between structures in a column
 # ---------------------------------------------------------------------------
 # Data helpers
 # ---------------------------------------------------------------------------
-
-def load_valid_smiles(path: Path) -> list[str]:
-    valid: list[str] = []
-    with path.open("r", encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line:
-                continue
-            mol = Chem.MolFromSmiles(line)
-            if mol is not None:
-                valid.append(line)
-    return valid
-
 
 @dataclass(frozen=True)
 class SampleConfig:
@@ -128,19 +117,6 @@ def _init_worker() -> None:
         sys.path.insert(0, str(project_root))
 
 
-def _render_one(
-    smiles: str,
-    size: tuple[int, int],
-    rng: random.Random,
-) -> Any | None:
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
-    from prepare_traindata.rdkit_chem import render_mol_random
-    img = render_mol_random(mol, size, rng)
-    return img
-
-
 class Placement(NamedTuple):
     img: object  # PIL Image
     x: int
@@ -165,7 +141,7 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
     images: list[object] = []
     for i, (s, size) in enumerate(zip(cfg.smiles, cfg.sizes)):
         struct_rng = random.Random(cfg.seed + i + (hash(s) & 0xFFFFFFFF))
-        img = _render_one(s, size, struct_rng)
+        img = render_smiles_random(s, size, struct_rng)
         if img is not None:
             images.append(img)
         # Limit to max_structures based on config length, but we already

@@ -4,6 +4,7 @@ import random
 from io import BytesIO
 
 from PIL import Image, ImageEnhance
+from rdkit import Chem
 from rdkit.Chem import Draw, Mol, rdAbbreviations, rdDepictor
 from rdkit.Chem.Draw import rdMolDraw2D
 
@@ -115,6 +116,21 @@ def render_mol_random(
         img = ImageEnhance.Brightness(grey_img).enhance(rng.uniform(1.1, 1.2))
 
     return img
+
+
+def render_smiles_random(
+    smiles: str,
+    target_size: tuple[int, int],
+    rng: random.Random,
+) -> Image.Image | None:
+    """Render a SMILES string to a PIL Image with random styling, or None on failure."""
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return None
+    try:
+        return render_mol_random(mol, target_size, rng)
+    except Exception:
+        return None
 
 
 def molecule_to_img(
