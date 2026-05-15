@@ -76,6 +76,12 @@
 │   │   └── 0/                          #   epoch 0 checkpoint
 │   └── test/                           # 推理测试结果
 │
+├── docs/
+│   ├── superpowers/
+│   │   ├── specs/                      # 设计规格文档
+│   │   └── plans/                      # 实现计划文档
+│   └── assets/                         # README 文档用图
+
 └── doc/assets/                         # README 文档用图
 ```
 
@@ -111,7 +117,25 @@ uv run python -m prepare_traindata.remap_and_split
 - 按 top-to-bottom、left-to-right 排序生成 `read_order`
 - 90/10 拆分为 `instance_train.json` / `instance_val.json`
 
-### 4.3 图文混排数据（text + image 联合训练）
+### 4.3 表格布局数据（table + image 联合训练）
+
+```bash
+# 生成表格布局合成数据（结构式 + 文本混排）
+uv run python -m prepare_traindata.generate_table_layout --workers 4
+```
+
+**`generate_table_layout.py` 行为：**
+- 每张图包含一个随机行列数的表格（内层表格）
+- 单元格内随机填充化学结构式（`image`, cat=14）或文本
+- 表格整体标注为 `table`（cat=21）
+- **5% 概率生成嵌套表格**（`nested=True`）：
+  - 外层 1 列表格，1-2 个 header 单元格（随机化学文本）+ 1 个底部单元格
+  - 外层边框 1px，内层表格边框 2-4px（形成视觉层次）
+  - 外层表格和 header 文本**不生成 annotation**，仅内层表格和结构式正常标注
+  - 内层 annotations 通过坐标偏移（`paste_x`, `paste_y`）映射到最终画布
+- 支持 `--watermark/--no-watermark` 控制水印
+
+### 4.4 图文混排数据（text + image 联合训练）
 
 ```bash
 # 生成 1000 张图文混排合成图（3 种布局模式随机选择）
@@ -292,6 +316,8 @@ SubModules:
 | 单元格文本自动换行 | 🟢 已解决 | `generate_table_layout.py` 已支持自动换行 + 字体大小回退 |
 | 水印与单元格背景冲突 | 🟢 已解决 | 仅在 `--no-watermark` 时绘制白色单元格背景 |
 | 图文混排训练数据 | 🟢 已完成 | `generate_text_mix_layout.py` 生成 1000 张，同时标注 `image`(14) + `text`(22) |
+| 表格布局嵌套支持 | 🟢 已完成 | `generate_table_layout.py` 支持 5% 概率生成外层 1 列表格包裹内层表格 |
+| RDKit 渲染多样性 | 🟢 已完成 | 支持随机背景色、灰度原子、comicMode、原子高亮等多样化渲染 |
 
 ### 8.2 后续优化方向
 
@@ -378,8 +404,15 @@ SubModules:
    - `prepare_traindata/cli.py` — click 共享选项（如 `output_dir`, `num_samples`, `split`）
    - `prepare_traindata/watermark_utils.py` — 水印生成器
    - `prepare_traindata/text_vocab.py` — 随机化学文本词库
+   - `prepare_traindata/rdkit_chem.py` — RDKit 渲染辅助，含 `render_mol_random` 多样化渲染
 
-5. **文件组织**
+5. **RDKit 结构式渲染多样性**
+   - 所有生成器使用 `render_mol_random()` 替代固定样式渲染
+   - 随机维度：背景色（透明/白/米色/浅蓝/浅灰）、原子灰度（0.0-0.4）、comicMode（30%）、原子高亮（30%，1-3 个原子，黄/绿/橙）
+   - 每个结构式使用独立 RNG：`random.Random(cfg.seed + idx + hash(smiles))`，保证渲染失败不影响后续结构式的确定性
+   - 输出 RGBA，背景透明便于合成时与画布融合
+
+6. **文件组织**
    - 每个 generator 独立文件：`generate_dense_layout.py`, `generate_table_layout.py`, `generate_text_mix_layout.py`, `generate_synthetic_layout.py`
    - 每文件 < 600 行；若膨胀则提取 helper 到新模块
    - 常量放在模块顶部 `CONSTANTS` 区块
@@ -396,6 +429,14 @@ ruff check --fix .
 uv run python -m prepare_traindata.generate_dense_layout --help
 uv run python -m prepare_traindata.generate_table_layout --num-samples 10 --watermark
 uv run python -m prepare_traindata.generate_text_mix_layout --num-samples 1000 --workers 4
+
+# 合并数据集
+uv run python -m prepare_traindata.merge_datasets \
+  --datasets data/dense_layout --datasets data/table_layout --datasets data/text_mix_layout \
+  --output-dir data/merged_all
+
+# 数据集校验
+uv run python main.py --mode check_dataset
 ```
 
 ---
