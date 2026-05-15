@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 from io import BytesIO
 
-from PIL import Image
+from PIL import Image, ImageEnhance
 from rdkit.Chem import Draw, Mol, rdAbbreviations, rdDepictor
 from rdkit.Chem.Draw import rdMolDraw2D
 
@@ -42,7 +42,7 @@ HIGHLIGHT_COLORS: list[tuple[float, float, float]] = [
 ]
 
 
-def build_random_draw_options(opts, rng: random.Random) -> rdMolDraw2D.MolDrawOptions:
+def build_random_draw_options(opts: rdMolDraw2D.MolDrawOptions, rng: random.Random) -> rdMolDraw2D.MolDrawOptions:
     """Return a MolDrawOptions with randomized styling."""
     opts.clearBackground = False
 
@@ -86,27 +86,33 @@ def render_mol_random(
             highlight_color = { atom: rng.choice(HIGHLIGHT_COLORS) for atom in highlight_atoms }
             pass
 
-    try:
-        d2d.DrawMolecule(
-            mol,
-            highlightAtoms=highlight_atoms,
-            highlightAtomColors=highlight_color,
-        )
-        d2d.FinishDrawing()
-        png_data = d2d.GetDrawingText()
-        img = Image.open(BytesIO(png_data)).convert("RGBA")
-        img = trim(img)
-    except Exception:
-        import logging
-        logging.getLogger(__name__).exception("Failed to render molecule")
-        return None
+    d2d.DrawMolecule(
+        mol,
+        highlightAtoms=highlight_atoms,
+        highlightAtomColors=highlight_color,
+    )
+    d2d.FinishDrawing()
+    png_data = d2d.GetDrawingText()
+    img = Image.open(BytesIO(png_data)).convert("RGBA")
+    img = trim(img)
 
     if img is None:
         return None
+
+    # 随机选择背景颜色
     bg_color = rng.choices(BACKGROUNDS, weights=BACKGROUND_WEIGHTS)[0]
     bg = Image.new("RGBA", img.size, bg_color)
     bg.paste(img, mask=img.split()[3])
     img = bg
+
+    # 增加随机灰度、模仿过曝
+    if rng.random() < 0.1:
+        # 1. Reduce color saturation to make it "pale"
+        pale_img = ImageEnhance.Color(img).enhance(rng.uniform(0.6, 0.9))
+        # 2. Reduce contrast to turn black into grey
+        grey_img = ImageEnhance.Contrast(pale_img).enhance(rng.uniform(0.6, 0.9))
+        # 3. Increase brightness slightly if needed
+        img = ImageEnhance.Brightness(grey_img).enhance(rng.uniform(1.1, 1.2))
 
     return img
 
