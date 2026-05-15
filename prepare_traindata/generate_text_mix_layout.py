@@ -181,27 +181,13 @@ def _render_structure(
     rng: random.Random,
 ) -> Any | None:
     """Render a SMILES structure to a PIL Image, or None on failure."""
-    from PIL import Image
 
     from prepare_traindata.rdkit_chem import render_mol_random
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None
-    try:
-        img = render_mol_random(mol, target_size, rng)
-    except Exception:
-        return None
-
-    if img is None:
-        return None
-
-    if img.mode == "RGBA":
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        bg.paste(img, mask=img.split()[3])
-        img = bg
-    elif img.mode != "RGB":
-        img = img.convert("RGB")
+    img = render_mol_random(mol, target_size, rng)
     return img
 
 
@@ -319,7 +305,7 @@ def _layout_pathway(
         iw, ih = img.size
         x = start_x + i * (struct_w + ARROW_LENGTH) + (struct_w - iw) // 2
         y = y_cursor + (struct_h - ih) // 2
-        canvas.paste(img, (x, y))
+        canvas.paste(img, (x, y), img)
         placements.append(StructurePlacement(x, y, iw, ih))
 
         # Arrow to next
@@ -417,7 +403,7 @@ def _layout_vertical(
         iw, ih = img.size
         x = cx - iw // 2
         y = y_cursor
-        canvas.paste(img, (x, y))
+        canvas.paste(img, (x, y), img)
         placements.append(StructurePlacement(x, y, iw, ih))
 
         # Meta lines below structure
@@ -495,7 +481,7 @@ def _layout_paragraph(
             iw, ih = img.size
             x = start_x + i * (struct_w + STRUCTURE_GAP) + (struct_w - iw) // 2
             y = y_cursor + (struct_h - ih) // 2
-            canvas.paste(img, (x, y))
+            canvas.paste(img, (x, y), img)
             placements.append(StructurePlacement(x, y, iw, ih))
         y_cursor += struct_h + STRUCTURE_GAP
     else:
@@ -513,7 +499,7 @@ def _layout_paragraph(
             cy = y_cursor + r * (struct_h + STRUCTURE_GAP) + struct_h // 2
             x = cx - iw // 2
             y = cy - ih // 2
-            canvas.paste(img, (x, y))
+            canvas.paste(img, (x, y), img)
             placements.append(StructurePlacement(x, y, iw, ih))
         y_cursor += rows * (struct_h + STRUCTURE_GAP)
 

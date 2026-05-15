@@ -275,20 +275,13 @@ def _render_structure(
     rng: random.Random,
 ) -> Any | None:
     """Render a SMILES structure to a PIL Image, or None on failure."""
-    from PIL import Image
 
     from prepare_traindata.rdkit_chem import render_mol_random
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None
-    try:
-        img = render_mol_random(mol, target_size, rng)
-    except Exception:
-        return None
-
-    if img is None:
-        return None
+    img = render_mol_random(mol, target_size, rng)
     return img
 
 
@@ -401,7 +394,7 @@ def _render_inner_table(
                     # Center inside cell
                     paste_x = x_cursor + (col_w - iw) // 2
                     paste_y = y_cursor + (row_h - ih) // 2
-                    canvas.paste(img, (paste_x, paste_y))
+                    canvas.paste(img, (paste_x, paste_y), img)
                     placements.append(
                         StructurePlacement(paste_x, paste_y, iw, ih, row_idx, col_idx)
                     )
@@ -674,7 +667,7 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
 @num_samples(default=2500)
 @seed(default=42)
 @workers(default=0)
-@split(default=0.0)
+@split(default=0.8)
 @watermark(default=True)
 @structure_prob(default=0.4)
 @min_cols(default=1)

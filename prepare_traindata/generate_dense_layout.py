@@ -137,10 +137,7 @@ def _render_one(
     if mol is None:
         return None
     from prepare_traindata.rdkit_chem import render_mol_random
-    try:
-        img = render_mol_random(mol, size, rng)
-    except Exception:
-        return None
+    img = render_mol_random(mol, size, rng)
     return img
 
 
@@ -209,7 +206,7 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
             img_w, img_h = img.size
             x = x_offset + (col_widths[col_idx] - img_w) // 2
             y = y_offset
-            canvas.paste(img, (x, y))
+            canvas.paste(img, (x, y), img)
             placements.append(Placement(img, x, y, row_idx, col_idx))
             y_offset += img_h + ROW_GAP
         x_offset += col_widths[col_idx] + COL_GAP
