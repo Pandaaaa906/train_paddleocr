@@ -40,3 +40,5 @@ CATEGORIES: list[dict[str, Any]] = [
 CAT_ID_TABLE: int = 21
 CAT_ID_IMAGE: int = 14
 CAT_ID_TEXT: int = 22
+CAT_ID_DOC_TITLE: int = 6
+CAT_ID_PARAGRAPH_TITLE: int = 17

@@ -24,7 +24,13 @@ import orjson
 from rdkit import RDLogger
 
 from prepare_traindata import text_vocab, watermark_utils
-from prepare_traindata.categories import CAT_ID_IMAGE, CAT_ID_TEXT, CATEGORIES
+from prepare_traindata.categories import (
+    CAT_ID_DOC_TITLE,
+    CAT_ID_IMAGE,
+    CAT_ID_PARAGRAPH_TITLE,
+    CAT_ID_TEXT,
+    CATEGORIES,
+)
 from prepare_traindata.cli import (
     max_cols,
     max_structures,
@@ -59,12 +65,14 @@ ARROW_HEAD_LEN: int = 12   # arrow head triangle size
 
 @dataclass(frozen=True)
 class TextLine:
-    """A single text line with its bounding box."""
+    """A single text line with its bounding box and category."""
     text: str
     x: int
     y: int
     w: int
     h: int
+    category_id: int = CAT_ID_TEXT
+    col_idx: int = 0
 
 
 @dataclass(frozen=True)
@@ -73,6 +81,7 @@ class StructurePlacement:
     y: int
     w: int
     h: int
+    col_idx: int = 0
 
 
 @dataclass(frozen=True)
@@ -241,7 +250,7 @@ def _layout_pathway(
     tw, th = _measure_text(draw, title, font)
     tx = (w - tw) // 2
     tx, ty, tw, th = _draw_text_line(draw, title, tx, y_cursor, font, text_color)
-    text_lines.append(TextLine(title, tx, ty, tw, th))
+    text_lines.append(TextLine(title, tx, ty, tw, th, category_id=CAT_ID_DOC_TITLE))
     y_cursor += th + LINE_GAP
 
     # Optionally second title line
@@ -252,7 +261,7 @@ def _layout_pathway(
         tx2, ty2, tw2, th2 = _draw_text_line(
             draw, subtitle, tx2, y_cursor, font, text_color
         )
-        text_lines.append(TextLine(subtitle, tx2, ty2, tw2, th2))
+        text_lines.append(TextLine(subtitle, tx2, ty2, tw2, th2, category_id=CAT_ID_DOC_TITLE))
         y_cursor += th2 + LINE_GAP
 
     y_cursor += STRUCTURE_GAP
@@ -349,7 +358,7 @@ def _layout_vertical(
     tx, ty, tw, th = _draw_text_line(
         draw, title, tx, y_cursor, font, text_color
     )
-    text_lines.append(TextLine(title, tx, ty, tw, th))
+    text_lines.append(TextLine(title, tx, ty, tw, th, category_id=CAT_ID_DOC_TITLE))
     y_cursor += th + LINE_GAP * 2
 
     # Columns
@@ -376,7 +385,7 @@ def _layout_vertical(
         x = cx - iw // 2
         y = y_cursor
         canvas.paste(img, (x, y), img)
-        placements.append(StructurePlacement(x, y, iw, ih))
+        placements.append(StructurePlacement(x, y, iw, ih, col_idx=col_idx))
 
         # Meta lines below structure
         col_y = y_cursor + struct_h + LINE_GAP
@@ -388,7 +397,7 @@ def _layout_vertical(
             mx, my, mw, mh = _draw_text_line(
                 draw, meta, mx, col_y, font_small, text_color
             )
-            text_lines.append(TextLine(meta, mx, my, mw, mh))
+            text_lines.append(TextLine(meta, mx, my, mw, mh, col_idx=col_idx))
             col_y += mh + LINE_GAP
 
         max_col_bottom = max(max_col_bottom, col_y)
@@ -427,14 +436,15 @@ def _layout_paragraph(
 
     # Top paragraph (2-4 lines)
     n_top = rng.randint(2, 4)
-    for _ in range(n_top):
+    for line_idx in range(n_top):
         text = rng.choice(text_vocab.GENERIC_TEXT_LINES)
         tw, th = _measure_text(draw, text, font)
         tx = MARGIN + rng.randint(0, max(0, w - MARGIN * 2 - tw))
         tx, ty, tw, th = _draw_text_line(
             draw, text, tx, y_cursor, font, text_color
         )
-        text_lines.append(TextLine(text, tx, ty, tw, th))
+        cat = CAT_ID_PARAGRAPH_TITLE if line_idx == 0 else CAT_ID_TEXT
+        text_lines.append(TextLine(text, tx, ty, tw, th, category_id=cat))
         y_cursor += th + LINE_GAP
 
     y_cursor += STRUCTURE_GAP
@@ -472,7 +482,7 @@ def _layout_paragraph(
             x = cx - iw // 2
             y = cy - ih // 2
             canvas.paste(img, (x, y), img)
-            placements.append(StructurePlacement(x, y, iw, ih))
+            placements.append(StructurePlacement(x, y, iw, ih, col_idx=c))
         y_cursor += rows * (struct_h + STRUCTURE_GAP)
 
     # Bottom paragraph (2-4 lines)
@@ -596,12 +606,15 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out_path)
 
-    # Build annotations sorted by y then x for read_order
-    raw_anns: list[tuple[int, int, dict]] = []  # (y, x, ann)
+    # Build annotations sorted by (col_idx, y, x) for read_order.
+    # vertical mode uses column-first ordering; other modes have col_idx=0
+    # everywhere so this degenerates to (y, x).
+    raw_anns: list[tuple[int, int, int, dict]] = []  # (col_idx, y, x, ann)
 
     for pl in placements:
         raw_anns.append(
             (
+                pl.col_idx,
                 pl.y,
                 pl.x,
                 {
@@ -630,12 +643,13 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
     for tl in text_lines:
         raw_anns.append(
             (
+                tl.col_idx,
                 tl.y,
                 tl.x,
                 {
                     "id": cfg.sample_idx * 1_000 + len(raw_anns),
                     "image_id": cfg.sample_idx,
-                    "category_id": CAT_ID_TEXT,
+                    "category_id": tl.category_id,
                     "bbox": [tl.x, tl.y, tl.w, tl.h],
                     "area": tl.w * tl.h,
                     "iscrowd": 0,
@@ -655,9 +669,9 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
             )
         )
 
-    raw_anns.sort(key=lambda t: (t[0], t[1]))
+    raw_anns.sort(key=lambda t: (t[0], t[1], t[2]))
     annotations = []
-    for order, (_, _, ann) in enumerate(raw_anns):
+    for order, (_, _, _, ann) in enumerate(raw_anns):
         ann["read_order"] = order
         annotations.append(ann)
 
