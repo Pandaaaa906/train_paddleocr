@@ -54,7 +54,7 @@ MARGIN: int = 20
 CELL_PADDING: int = 10
 MIN_STRUCTURE_MARGIN: int = 5
 OUTER_CELL_PADDING: int = 10
-NESTED_PROB: float = 0.08
+NESTED_PROB: float = 0.1
 
 CAT_TABLE: int = CAT_ID_TABLE
 CAT_IMAGE: int = CAT_ID_IMAGE
@@ -84,6 +84,7 @@ class SampleConfig:
     use_watermark: bool
     nested: bool = False
     header_texts: tuple[str, ...] = ()
+    outer_edges: tuple[bool, bool, bool, bool] = (True, True, True, True)
 
 
 def build_configs(
@@ -117,6 +118,7 @@ def build_configs(
         col_widths = tuple(rng.randint(*cell_width_range) for _ in range(num_cols))
         row_heights = tuple(rng.randint(*cell_height_range) for _ in range(num_rows))
         border_width = rng.randint(2, 4)
+        outer_edges = tuple(rng.random() >= 0.05 for _ in range(4))
 
         total_cells = num_cols * num_rows
         cells: list[CellConfig] = []
@@ -142,6 +144,7 @@ def build_configs(
                 use_watermark=True,
                 nested=nested,
                 header_texts=header_texts,
+                outer_edges=outer_edges,
             )
         )
     return configs
@@ -297,11 +300,14 @@ def _render_inner_table(
     cfg: SampleConfig,
     margin: int = MARGIN,
     apply_watermark: bool = True,
+    outer_edges: tuple[bool, bool, bool, bool] | None = None,
 ) -> tuple[Any, list[dict[str, Any]]]:
     """Render the inner table image and raw annotations.
 
     Returns (pil_image, annotations_list).
     """
+    if outer_edges is None:
+        outer_edges = cfg.outer_edges
     from PIL import Image, ImageDraw
 
     rng = random.Random(cfg.seed)
@@ -422,18 +428,13 @@ def _render_inner_table(
 
     # Draw borders (outer + inner)
     bw = cfg.border_width
-    # Outer border
-    draw.rectangle(
-        [table_x, table_y, table_x + total_table_w, table_y + total_table_h],
-        outline=(0, 0, 0),
-        width=bw,
-    )
+    # Inner borders (endpoints inset by bw so they never touch outer rectangle)
     # Vertical inner lines
     x_cursor = table_x
     for col_w in cfg.col_widths[:-1]:
         x_cursor += col_w
         draw.line(
-            [(x_cursor, table_y), (x_cursor, table_y + total_table_h)],
+            [(x_cursor, table_y + bw), (x_cursor, table_y + total_table_h - bw)],
             fill=(0, 0, 0),
             width=bw,
         )
@@ -442,7 +443,37 @@ def _render_inner_table(
     for row_h in cfg.row_heights[:-1]:
         y_cursor += row_h
         draw.line(
-            [(table_x, y_cursor), (table_x + total_table_w, y_cursor)],
+            [(table_x + bw, y_cursor), (table_x + total_table_w - bw, y_cursor)],
+            fill=(0, 0, 0),
+            width=bw,
+        )
+
+    # Outer edges (conditional dropout)
+    # Top
+    if outer_edges[0]:
+        draw.line(
+            [(table_x, table_y), (table_x + total_table_w, table_y)],
+            fill=(0, 0, 0),
+            width=bw,
+        )
+    # Bottom
+    if outer_edges[1]:
+        draw.line(
+            [(table_x, table_y + total_table_h), (table_x + total_table_w, table_y + total_table_h)],
+            fill=(0, 0, 0),
+            width=bw,
+        )
+    # Left
+    if outer_edges[2]:
+        draw.line(
+            [(table_x, table_y), (table_x, table_y + total_table_h)],
+            fill=(0, 0, 0),
+            width=bw,
+        )
+    # Right
+    if outer_edges[3]:
+        draw.line(
+            [(table_x + total_table_w, table_y), (table_x + total_table_w, table_y + total_table_h)],
             fill=(0, 0, 0),
             width=bw,
         )
@@ -527,7 +558,8 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
     # ---- NESTED PATH ----
     # 1. Render inner table WITHOUT margin and WITHOUT watermark
     inner_img, inner_raw_annotations = _render_inner_table(
-        cfg, margin=0, apply_watermark=False
+        cfg, margin=0, apply_watermark=False,
+        outer_edges=(True, True, True, True),
     )
     inner_w, inner_h = inner_img.size
 
@@ -706,6 +738,7 @@ def main(
             use_watermark=watermark,
             nested=c.nested,
             header_texts=c.header_texts,
+            outer_edges=c.outer_edges,
         )
         for c in configs
     ]
