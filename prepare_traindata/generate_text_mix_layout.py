@@ -679,7 +679,7 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
 @output_dir(default="data/text_mix_layout")
 @num_samples(default=1000)
 @seed(default=42)
-@workers(default=0)
+@workers(default=8)
 @split(default=0.8)
 @watermark(default=True)
 @min_structures(default=2)

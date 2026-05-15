@@ -235,7 +235,7 @@ def _generate_sample(cfg: SampleConfig) -> SampleResult | None:
 @output_dir(default="data/dense_layout")
 @num_samples(default=2500)
 @seed(default=42)
-@workers(default=0)
+@workers(default=8)
 @split(default=0.9)
 @watermark(default=True)
 @min_structures(default=2)
